@@ -4,14 +4,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Pitolero Wind Lab · orografía 3D y viento</title>
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.0.0/dist/maplibre-gl.css" />
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" />
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
 <div id="map"></div>
 <div class="panel">
   <div class="head">
-    <div class="title">🪂 Pitolero Wind Lab <span class="badge">v2</span></div>
+    <div class="title">🪂 Pitolero Wind Lab <span class="badge">v2.1</span></div>
     <div class="subtitle">Orografía 3D real del IGN + modelo exploratorio de flujo para vuelo libre.</div>
   </div>
   <div class="section">
@@ -55,14 +55,14 @@
     <div class="legend"><div class="lg"><span class="sw up"></span>ascendencia</div><div class="lg"><span class="sw neutral"></span>flujo neutro</div><div class="lg"><span class="sw down"></span>descendencia</div><div class="lg"><span class="sw wake"></span>estela/rotor</div></div>
   </div>
   <div class="section">
-    <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">Cargando MDT oficial…</span></div>
+    <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">Cargando mapa y MDT oficial…</span></div>
     <div class="notice" style="margin-top:9px"><strong>Importante:</strong> es una herramienta de análisis orográfico, no una predicción CFD ni sustituye la evaluación meteorológica del piloto. La versión actual usa el servicio oficial MDT05 (5 m de origen LiDAR); el MDT50 cm se incorporará como detalle local.</div>
   </div>
 </div>
 <div class="wind-chip"><div id="windArrow" class="arrow">➜</div><div><div class="big"><span id="chipDir">NO</span> · <span id="chipSpeed">20</span> km/h</div><div class="small">viento meteorológico · desde</div></div></div>
 <div id="tip" class="tip"></div>
-<script src="https://unpkg.com/maplibre-gl@6.0.0/dist/maplibre-gl.js"></script>
-<script src="https://unpkg.com/deck.gl@9.3.7/dist.min.js"></script>
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/deck.gl@^9.0.0/dist.min.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>
