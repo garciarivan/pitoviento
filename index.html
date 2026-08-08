@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Pitolero Wind Lab · orografía 3D y viento</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.0.0/dist/maplibre-gl.css" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+<div id="map"></div>
+<div class="panel">
+  <div class="head">
+    <div class="title">🪂 Pitolero Wind Lab <span class="badge">v2</span></div>
+    <div class="subtitle">Orografía 3D real del IGN + modelo exploratorio de flujo para vuelo libre.</div>
+  </div>
+  <div class="section">
+    <div class="row"><span class="label">Viento desde</span><span class="value"><b id="dirLabel">NO</b> · <span id="dirDeg">315°</span></span></div>
+    <input id="direction" type="range" min="0" max="359" step="1" value="315" />
+    <div class="compass" style="margin-top:8px">
+      <button data-dir="0">N</button><button data-dir="45">NE</button><button data-dir="90">E</button><button data-dir="135">SE</button>
+      <button data-dir="180">S</button><button data-dir="225">SO</button><button data-dir="270">O</button><button data-dir="315" class="active">NO</button>
+    </div>
+  </div>
+  <div class="section">
+    <div class="row"><span class="label">Velocidad</span><span class="value"><span id="speedLabel">20</span> km/h</span></div>
+    <input id="speed" type="range" min="5" max="55" step="1" value="20" />
+    <div class="row" style="margin-top:12px"><span class="label">Estabilidad</span></div>
+    <select id="stability"><option value="unstable">Inestable / convectiva</option><option value="neutral" selected>Neutra</option><option value="stable">Estable</option></select>
+  </div>
+  <div class="section">
+    <div class="row"><span class="label">Densidad de líneas</span><span class="value" id="densityLabel">15</span></div>
+    <input id="density" type="range" min="7" max="27" step="2" value="15" />
+    <div class="row" style="margin-top:10px"><span class="label">Exageración del relieve</span><span class="value" id="exagLabel">1.35×</span></div>
+    <input id="exag" type="range" min="1" max="2.2" step="0.05" value="1.35" />
+  </div>
+  <div class="section">
+    <div class="metrics">
+      <div class="metric"><div class="k">Pitolero</div><div class="v" id="siteElev">— m</div><div class="s">elevación DEM</div></div>
+      <div class="metric"><div class="k">w estimada</div><div class="v" id="siteW">— m/s</div><div class="s" id="siteClass">esperando terreno</div></div>
+      <div class="metric"><div class="k">Dirección flujo</div><div class="v" id="flowDir">135°</div><div class="s">hacia sotavento</div></div>
+      <div class="metric"><div class="k">Área</div><div class="v">40 × 40</div><div class="s">km alrededor</div></div>
+    </div>
+  </div>
+  <div class="section">
+    <div class="switches">
+      <label class="switch"><input id="particles" type="checkbox" checked /> partículas</label>
+      <label class="switch"><input id="hillshade" type="checkbox" checked /> sombreado</label>
+      <label class="switch"><input id="ortho" type="checkbox" checked /> ortofoto PNOA</label>
+      <label class="switch"><input id="windLines" type="checkbox" checked /> líneas viento</label>
+    </div>
+    <div class="actions" style="margin-top:9px"><button id="resetView">Vista Pitolero</button><button id="recalc">Recalcular flujo</button></div>
+  </div>
+  <div class="section">
+    <div class="legend"><div class="lg"><span class="sw up"></span>ascendencia</div><div class="lg"><span class="sw neutral"></span>flujo neutro</div><div class="lg"><span class="sw down"></span>descendencia</div><div class="lg"><span class="sw wake"></span>estela/rotor</div></div>
+  </div>
+  <div class="section">
+    <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">Cargando MDT oficial…</span></div>
+    <div class="notice" style="margin-top:9px"><strong>Importante:</strong> es una herramienta de análisis orográfico, no una predicción CFD ni sustituye la evaluación meteorológica del piloto. La versión actual usa el servicio oficial MDT05 (5 m de origen LiDAR); el MDT50 cm se incorporará como detalle local.</div>
+  </div>
+</div>
+<div class="wind-chip"><div id="windArrow" class="arrow">➜</div><div><div class="big"><span id="chipDir">NO</span> · <span id="chipSpeed">20</span> km/h</div><div class="small">viento meteorológico · desde</div></div></div>
+<div id="tip" class="tip"></div>
+<script src="https://unpkg.com/maplibre-gl@6.0.0/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/deck.gl@9.3.7/dist.min.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>
