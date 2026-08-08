@@ -31,17 +31,25 @@
     return 2*R*Math.asin(Math.sqrt(h));
   }
 
+  function pathLength(path){
+    let total = 0;
+    for(let i=1;i<path.length;i++) total += distanceM(path[i-1][0],path[i-1][1],path[i][0],path[i][1]);
+    return Math.max(total,1);
+  }
+
   function compassLabel(d){
     const names=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO'];
     return names[Math.round((((d%360)+360)%360)/22.5)%16];
   }
 
   function colorFor(w,wake){
-    if(wake>0.65) return [255,184,77,225];
-    if(w>0.55) return [53,226,127,225];
-    if(w<-0.55) return [255,92,108,225];
-    return [90,200,250,195];
+    if(wake>0.65) return [255,184,77,235];
+    if(w>0.55) return [53,226,127,235];
+    if(w<-0.55) return [255,92,108,235];
+    return [90,200,250,220];
   }
+
+  function guideColor(c,alpha){ return [c[0],c[1],c[2],alpha]; }
 
   function classFor(w,wake){
     if(wake>0.65) return 'estela / rotor probable';
@@ -200,7 +208,7 @@
       pos = destination(pos[0],pos[1],bearing,step);
     }
 
-    return {path,values,segments,phase};
+    return {path,values,segments,phase,kind,lengthM:pathLength(path)};
   }
 
   function localDetailConfig(){
@@ -236,7 +244,7 @@
       return;
     }
     const spacing = Math.max(1,Math.round(cfg.crossSpan/Math.max(1,cfg.density-1)));
-    el.textContent = `${cfg.density} líneas locales · separación ~${spacing} m`;
+    el.textContent = `${cfg.density} trazas locales · separación ~${spacing} m`;
   }
 
   function buildLocalDetail(){
@@ -269,7 +277,7 @@
 
     if(selectedPoint) buildSelectedStream(false);
     renderDeck(performance.now());
-    setStatus(`Detalle local activo · ${cfg.density} líneas extra en zoom ${map.getZoom().toFixed(1)}`,'ok');
+    setStatus(`Detalle local activo · ${cfg.density} trazas 3D en zoom ${map.getZoom().toFixed(1)}`,'ok');
   }
 
   function buildSelectedStream(showStatus=true){
@@ -287,7 +295,6 @@
     const speed = +$('speed').value;
     const flow = (from+180)%360;
     const exag = getExag();
-    const z = map.getZoom();
     const cfg = localDetailConfig();
     const step = clamp(cfg.step || 220,45,260);
     const halfSpan = clamp((cfg.alongSpan || 8000)*0.55,3000,9000);
@@ -342,7 +349,7 @@
       segments.push({a:path[i-1],b:path[i],color:colorFor(v.w,v.wake),w:v.w,wake:v.wake,kind:'selected'});
     }
 
-    windModel.selectedStream = {path,values,phase:0};
+    windModel.selectedStream = {path,values,phase:0,kind:'selected',lengthM:pathLength(path)};
     windModel.selectedSegments = segments;
     pointerInfo = {lon:selectedPoint.lon,lat:selectedPoint.lat,z:ground0*exag+24};
 
@@ -371,7 +378,7 @@
       return;
     }
     lastModelKey = key;
-    setStatus('Calculando flujo general sobre el MDT…');
+    setStatus('Calculando campo 3D sobre el MDT…');
     await new Promise(r=>setTimeout(r,25));
 
     const flow = (from+180)%360;
@@ -408,31 +415,77 @@
     }
 
     renderDeck(performance.now());
-    setStatus(validCount>100 ? 'MDT cargado · flujo general y detalle local actualizados' : 'Esperando más teselas del MDT…', validCount>100?'ok':'loading');
+    setStatus(validCount>100 ? 'MDT cargado · partículas 3D actualizadas' : 'Esperando más teselas del MDT…', validCount>100?'ok':'loading');
     modelBusy = false;
   }
 
-  function particleData(t){
-    if(!$('particles').checked) return [];
+  function sampleStream(stream,norm){
+    if(!stream || !stream.path || stream.path.length<2) return null;
+    const n = ((norm%1)+1)%1;
+    const f = n*(stream.path.length-1);
+    const i = Math.floor(f);
+    const q = f-i;
+    const a = stream.path[i];
+    const b = stream.path[Math.min(i+1,stream.path.length-1)];
+    const val = stream.values[Math.min(i,stream.values.length-1)] || {w:0,wake:0};
+    return {
+      position:[a[0]+(b[0]-a[0])*q,a[1]+(b[1]-a[1])*q,a[2]+(b[2]-a[2])*q+12],
+      value:val
+    };
+  }
+
+  function particleSpacing(kind,zoom){
+    if(kind==='selected') return 420;
+    if(kind==='global') return zoom<11 ? 3600 : 2800;
+    if(zoom<12) return 1300;
+    if(zoom<13) return 900;
+    if(zoom<14) return 620;
+    if(zoom<15) return 420;
+    if(zoom<16) return 290;
+    return 190;
+  }
+
+  function particleVisualData(t){
+    if(!$('particles').checked) return {trails:[],heads:[]};
     const speed = +$('speed').value;
-    const out = [];
-    const allStreams = windModel.globalStreams.concat(windModel.localStreams);
-    allStreams.forEach((s,idx)=>{
-      const particlesPerStream = idx<windModel.globalStreams.length ? 2 : 1;
-      for(let k=0;k<particlesPerStream;k++){
-        const phase = (t*0.000035*(0.6+speed/30)+s.phase+k/Math.max(1,particlesPerStream))%1;
-        const f = phase*(s.path.length-1);
-        const i = Math.floor(f);
-        const q = f-i;
-        const a = s.path[i];
-        const b = s.path[Math.min(i+1,s.path.length-1)];
-        if(!a || !b) continue;
-        const pos = [a[0]+(b[0]-a[0])*q,a[1]+(b[1]-a[1])*q,a[2]+(b[2]-a[2])*q+14];
-        const val = s.values[Math.min(i,s.values.length-1)] || {w:0,wake:0};
-        out.push({position:pos,color:colorFor(val.w,val.wake)});
+    const U = speed/3.6;
+    const zoom = map.getZoom();
+    const visualScale = 70;
+    const traveled = t*0.001*U*visualScale;
+    const trails = [];
+    const heads = [];
+    const streams = [];
+
+    windModel.globalStreams.forEach(s=>streams.push(s));
+    windModel.localStreams.forEach(s=>streams.push(s));
+    if(windModel.selectedStream) streams.push(windModel.selectedStream);
+
+    streams.forEach((s,streamIndex)=>{
+      const length = Math.max(s.lengthM || pathLength(s.path),1);
+      const spacing = particleSpacing(s.kind || 'global',zoom);
+      const count = clamp(Math.round(length/spacing),2,s.kind==='selected'?24:30);
+      const trailM = s.kind==='selected' ? clamp(speed*18,170,650) : clamp(speed*13,120,520);
+      const seed = ((streamIndex*0.61803398875)+(s.phase||0))%1;
+
+      for(let k=0;k<count;k++){
+        const offsetM = ((k/count+seed)%1)*length;
+        const headDist = (traveled+offsetM)%length;
+        const headNorm = headDist/length;
+        const samples = [];
+        for(let j=3;j>=0;j--){
+          const d = headDist-trailM*(j/3);
+          const smp = sampleStream(s,d/length);
+          if(smp) samples.push(smp.position);
+        }
+        const head = sampleStream(s,headNorm);
+        if(!head || samples.length<2) continue;
+        const c = colorFor(head.value.w,head.value.wake);
+        trails.push({path:samples,color:c,kind:s.kind||'global'});
+        heads.push({position:head.position,color:c,kind:s.kind||'global'});
       }
     });
-    return out;
+
+    return {trails,heads};
   }
 
   function renderDeck(t){
@@ -441,43 +494,53 @@
 
     if($('windLines').checked){
       layers.push(new PathLayer({
-        id:'wind-global', data:windModel.globalSegments,
-        getPath:d=>[d.a,d.b], getColor:d=>d.color,
-        getWidth:2.0, widthUnits:'pixels', jointRounded:true, capRounded:true,
+        id:'wind-global-guides', data:windModel.globalSegments,
+        getPath:d=>[d.a,d.b], getColor:d=>guideColor(d.color,55),
+        getWidth:1.0, widthUnits:'pixels', jointRounded:true, capRounded:true,
         pickable:false, parameters:{depthTest:true}
       }));
 
       if(windModel.localSegments.length){
         layers.push(new PathLayer({
-          id:'wind-local', data:windModel.localSegments,
-          getPath:d=>[d.a,d.b], getColor:d=>d.color,
-          getWidth:1.7, widthUnits:'pixels', jointRounded:true, capRounded:true,
-          pickable:false, parameters:{depthTest:true}
-        }));
-      }
-
-      if(windModel.selectedSegments.length){
-        layers.push(new PathLayer({
-          id:'selected-halo', data:windModel.selectedSegments,
-          getPath:d=>[d.a,d.b], getColor:[255,255,255,205],
-          getWidth:6.5, widthUnits:'pixels', jointRounded:true, capRounded:true,
-          pickable:false, parameters:{depthTest:true}
-        }));
-        layers.push(new PathLayer({
-          id:'selected-flow', data:windModel.selectedSegments,
-          getPath:d=>[d.a,d.b], getColor:d=>d.color,
-          getWidth:3.5, widthUnits:'pixels', jointRounded:true, capRounded:true,
+          id:'wind-local-guides', data:windModel.localSegments,
+          getPath:d=>[d.a,d.b], getColor:d=>guideColor(d.color,45),
+          getWidth:0.9, widthUnits:'pixels', jointRounded:true, capRounded:true,
           pickable:false, parameters:{depthTest:true}
         }));
       }
     }
 
-    if($('particles').checked){
+    const particles = particleVisualData(t);
+    if($('particles').checked && particles.trails.length){
+      layers.push(new PathLayer({
+        id:'wind-particle-trails', data:particles.trails,
+        getPath:d=>d.path,
+        getColor:d=>d.color,
+        getWidth:d=>d.kind==='selected'?3.4:d.kind==='local'?2.2:1.9,
+        widthUnits:'pixels', jointRounded:true, capRounded:true,
+        pickable:false, parameters:{depthTest:true}
+      }));
       layers.push(new ScatterplotLayer({
-        id:'wind-particles', data:particleData(t),
-        getPosition:d=>d.position, getFillColor:d=>d.color,
-        getLineColor:[255,255,255,180], lineWidthMinPixels:0.7,
-        stroked:true, filled:true, getRadius:3.2, radiusUnits:'pixels',
+        id:'wind-particle-heads', data:particles.heads,
+        getPosition:d=>d.position,
+        getFillColor:d=>d.color,
+        getRadius:d=>d.kind==='selected'?2.9:2.1,
+        radiusUnits:'pixels', stroked:false, filled:true,
+        pickable:false, parameters:{depthTest:true}
+      }));
+    }
+
+    if(windModel.selectedSegments.length){
+      layers.push(new PathLayer({
+        id:'selected-halo', data:windModel.selectedSegments,
+        getPath:d=>[d.a,d.b], getColor:[255,255,255,205],
+        getWidth:6.2, widthUnits:'pixels', jointRounded:true, capRounded:true,
+        pickable:false, parameters:{depthTest:true}
+      }));
+      layers.push(new PathLayer({
+        id:'selected-flow', data:windModel.selectedSegments,
+        getPath:d=>[d.a,d.b], getColor:d=>d.color,
+        getWidth:3.2, widthUnits:'pixels', jointRounded:true, capRounded:true,
         pickable:false, parameters:{depthTest:true}
       }));
     }
@@ -543,7 +606,7 @@
     scheduleRecalc(60);
   }));
   $('direction').addEventListener('input',()=>scheduleRecalc(180));
-  $('speed').addEventListener('input',()=>scheduleRecalc(180));
+  $('speed').addEventListener('input',()=>{ updateUI(); scheduleRecalc(180); });
   $('density').addEventListener('input',()=>scheduleRecalc(220));
   $('stability').addEventListener('change',()=>scheduleRecalc(80));
   $('exag').addEventListener('input',()=>{
@@ -587,7 +650,7 @@
     const local = localFlowAt(e.lngLat.lng,e.lngLat.lat,+$('direction').value,+$('speed').value,probe);
     if(clickPopup) clickPopup.remove();
     const details = local
-      ? `<br>Altitud: ${Math.round(local.elev)} m<br>w estimada: ${(local.w>=0?'+':'')+local.w.toFixed(1)} m/s<br>${classFor(local.w,0)}`
+      ? `<br>Altitud: <strong>${Math.round(local.elev)} m</strong><br>w estimada: <strong>${(local.w>=0?'+':'')+local.w.toFixed(1)} m/s</strong><br>${classFor(local.w,0)}`
       : '';
     clickPopup = new maplibregl.Popup({offset:14,closeButton:true,closeOnClick:false})
       .setLngLat([e.lngLat.lng,e.lngLat.lat])
