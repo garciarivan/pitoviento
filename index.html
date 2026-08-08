@@ -11,7 +11,7 @@
 <div id="map"></div>
 <div id="controlPanel" class="panel">
   <div class="head">
-    <div class="title">🪂 Pitolero Wind Lab <span class="badge">v2.8</span></div>
+    <div class="title">🪂 Pitolero Wind Lab <span class="badge">v2.9</span></div>
     <div class="subtitle">Orografía 3D real del IGN + flujo de viento tridimensional para vuelo libre.</div>
   </div>
   <div class="section">
@@ -52,7 +52,7 @@
       <label class="switch"><input id="ortho" type="checkbox" checked /> ortofoto PNOA</label>
     </div>
     <div class="actions" style="margin-top:9px"><button id="resetView">Vista Pitolero</button><button id="recalc">Recalcular flujo</button></div>
-    <div class="notice" style="margin-top:9px"><strong>Canalización por valles:</strong> la dirección meteorológica sigue siendo la referencia, pero el flujo puede desviarse gradualmente cuando el MDT detecta un corredor con relieve elevado a ambos lados. La desviación está limitada para evitar giros artificiales. <strong>Detalle puntual:</strong> haz clic sobre el terreno para inspeccionar rumbo local, velocidad, Venturi y componente vertical; al cerrar el popup se elimina también ese detalle del flujo.</div>
+    <div class="notice" style="margin-top:9px"><strong>Canalización por valles:</strong> la dirección meteorológica sigue siendo la referencia, pero el flujo puede desviarse gradualmente cuando el MDT detecta un corredor con relieve elevado a ambos lados. <strong>Detalle puntual:</strong> haz clic sobre el terreno y la información aparecerá en el panel lateral derecho sin tapar la trayectoria.</div>
   </div>
   <div class="section">
     <div class="legend"><div class="lg"><span class="sw up"></span>ascendencia</div><div class="lg"><span class="sw neutral"></span>flujo neutro</div><div class="lg"><span class="sw down"></span>descendencia</div><div class="lg"><span class="sw wake"></span>estela/rotor</div></div>
@@ -63,6 +63,28 @@
   </div>
 </div>
 <button id="panelToggle" class="panel-toggle" aria-controls="controlPanel" aria-expanded="false" aria-label="Abrir controles">›</button>
+
+<aside id="detailPanel" class="detail-panel" aria-hidden="true" aria-label="Detalle puntual de viento">
+  <div class="detail-head">
+    <div>
+      <div class="detail-eyebrow">Punto seleccionado</div>
+      <div class="detail-title">Detalle del viento</div>
+    </div>
+    <button id="detailClose" class="detail-close" type="button" aria-label="Cerrar detalle">×</button>
+  </div>
+  <div id="detailCoords" class="detail-coords">—</div>
+  <div class="detail-grid">
+    <div class="detail-item"><span>Altitud</span><strong id="detailElev">—</strong></div>
+    <div class="detail-item"><span>Velocidad local</span><strong id="detailSpeed">—</strong></div>
+    <div class="detail-item"><span>Rumbo local</span><strong id="detailBearing">—</strong></div>
+    <div class="detail-item"><span>Canalización</span><strong id="detailChannel">—</strong></div>
+    <div class="detail-item"><span>Venturi</span><strong id="detailVenturi">—</strong></div>
+    <div class="detail-item"><span>w estimada</span><strong id="detailW">—</strong></div>
+  </div>
+  <div id="detailClass" class="detail-class">—</div>
+  <div class="detail-hint">La trayectoria resaltada nace en este punto. Cierra este panel para eliminarla.</div>
+</aside>
+
 <div class="wind-chip"><div id="windArrow" class="arrow">➜</div><div><div class="big"><span id="chipDir">NO</span> · <span id="chipSpeed">20</span> km/h</div><div class="small">viento meteorológico · desde</div></div></div>
 <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/deck.gl@^9.0.0/dist.min.js"></script>
