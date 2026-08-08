@@ -11,7 +11,7 @@
 <div id="map"></div>
 <div id="controlPanel" class="panel">
   <div class="head">
-    <div class="title">🪂 Pitolero Wind Lab <span class="badge">v2.7</span></div>
+    <div class="title">🪂 Pitolero Wind Lab <span class="badge">v2.8</span></div>
     <div class="subtitle">Orografía 3D real del IGN + flujo de viento tridimensional para vuelo libre.</div>
   </div>
   <div class="section">
@@ -52,7 +52,7 @@
       <label class="switch"><input id="ortho" type="checkbox" checked /> ortofoto PNOA</label>
     </div>
     <div class="actions" style="margin-top:9px"><button id="resetView">Vista Pitolero</button><button id="recalc">Recalcular flujo</button></div>
-    <div class="notice" style="margin-top:9px"><strong>Canalización por valles:</strong> la dirección meteorológica sigue siendo la referencia, pero el flujo puede desviarse gradualmente cuando el MDT detecta un corredor con relieve elevado a ambos lados. La desviación está limitada para evitar giros artificiales. <strong>Detalle puntual:</strong> haz clic sobre el terreno para inspeccionar rumbo local, velocidad, Venturi y componente vertical.</div>
+    <div class="notice" style="margin-top:9px"><strong>Canalización por valles:</strong> la dirección meteorológica sigue siendo la referencia, pero el flujo puede desviarse gradualmente cuando el MDT detecta un corredor con relieve elevado a ambos lados. La desviación está limitada para evitar giros artificiales. <strong>Detalle puntual:</strong> haz clic sobre el terreno para inspeccionar rumbo local, velocidad, Venturi y componente vertical; al cerrar el popup se elimina también ese detalle del flujo.</div>
   </div>
   <div class="section">
     <div class="legend"><div class="lg"><span class="sw up"></span>ascendencia</div><div class="lg"><span class="sw neutral"></span>flujo neutro</div><div class="lg"><span class="sw down"></span>descendencia</div><div class="lg"><span class="sw wake"></span>estela/rotor</div></div>
@@ -64,7 +64,6 @@
 </div>
 <button id="panelToggle" class="panel-toggle" aria-controls="controlPanel" aria-expanded="false" aria-label="Abrir controles">›</button>
 <div class="wind-chip"><div id="windArrow" class="arrow">➜</div><div><div class="big"><span id="chipDir">NO</span> · <span id="chipSpeed">20</span> km/h</div><div class="small">viento meteorológico · desde</div></div></div>
-<div id="tip" class="tip"></div>
 <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/deck.gl@^9.0.0/dist.min.js"></script>
 <script src="./app.js"></script>
