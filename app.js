@@ -37,13 +37,11 @@
   }
 
   function colorFor(w,wake){
-    if(wake>0.65) return [255,184,77,235];
-    if(w>0.55) return [53,226,127,235];
-    if(w<-0.55) return [255,92,108,235];
-    return [90,200,250,220];
+    if(wake>0.65) return [255,184,77,225];
+    if(w>0.55) return [53,226,127,225];
+    if(w<-0.55) return [255,92,108,225];
+    return [90,200,250,205];
   }
-
-  function guideColor(c,alpha){ return [c[0],c[1],c[2],alpha]; }
 
   function classFor(w,wake){
     if(wake>0.65) return 'estela / rotor probable';
@@ -81,7 +79,7 @@
 
   let overlay=null, animId=0, modelBusy=false, lastModelKey='', localTimer=0, recalcTimer=0;
   let pointerInfo=null, selectedPoint=null, clickPopup=null;
-  let windModel={globalStreams:[],globalSegments:[],localStreams:[],localSegments:[],selectedStream:null,selectedSegments:[]};
+  let windModel={globalStreams:[],localStreams:[],selectedStream:null};
   const {MapboxOverlay,PathLayer,ScatterplotLayer}=deck;
 
   function setStatus(text,state='loading'){
@@ -106,7 +104,6 @@
   }
 
   // Proxy diagnóstico de aceleración por estrechamiento lateral del relieve.
-  // Si el terreno asciende a ambos lados del flujo, aumenta la velocidad local.
   function venturiAt(lon,lat,bearing,ground,probe,hL=null,hR=null){
     const l1=hL===null?destination(lon,lat,(bearing+270)%360,probe):null;
     const r1=hR===null?destination(lon,lat,(bearing+90)%360,probe):null;
@@ -116,7 +113,6 @@
     const r2=destination(lon,lat,(bearing+90)%360,probe*2.2);
     const leftFar=terrainElev(l2[0],l2[1]);
     const rightFar=terrainElev(r2[0],r2[1]);
-
     const rise=(h,dist)=>h===null?0:(h-ground)/dist;
     const near=Math.max(0,Math.min(rise(leftNear,probe),rise(rightNear,probe)));
     const far=Math.max(0,Math.min(rise(leftFar,probe*2.2),rise(rightFar,probe*2.2)));
@@ -160,7 +156,7 @@
 
   function traceStream(start,flow,totalM,step,phase,kind){
     const baseSpeed=+$('speed').value, p=stabilityParams(), exag=getExag();
-    const path=[], values=[], segments=[];
+    const path=[], values=[];
     let pos=[start[0],start[1]], bearing=flow, crest=-Infinity, crestAge=999999, airAlt=null;
     const probe=clamp(step*0.65,55,420);
 
@@ -193,10 +189,8 @@
       airAlt+=(ground+minAgl-airAlt)*(kind==='local'?0.28:0.22);
       airAlt=Math.max(airAlt,ground+70);
 
-      const point=[pos[0],pos[1],ground*exag+(airAlt-ground)];
-      path.push(point);
+      path.push([pos[0],pos[1],ground*exag+(airAlt-ground)]);
       values.push({w,wake,ground,localSpeedKmh,venturiBoost:vent.boost});
-      if(path.length>1) segments.push({a:path[path.length-2],b:point,color:colorFor(w,wake),w,wake,kind,localSpeedKmh,venturiBoost:vent.boost});
 
       const turnLimit=kind==='local'?5.0:4.0;
       const turn=clamp(-crossSlope*140*p.steer,-turnLimit,turnLimit);
@@ -204,34 +198,38 @@
       pos=destination(pos[0],pos[1],bearing,step);
     }
 
-    return finalizeStream({path,values,segments,phase,kind});
+    return finalizeStream({path,values,phase,kind});
   }
 
   function localDetailConfig(){
     const z=map.getZoom();
     if(z<11) return {density:0,step:0,crossSpan:0,alongSpan:0};
     let density,step;
-    if(z<12){density=19;step=620;} else if(z<13){density=31;step=360;} else if(z<14){density=43;step=210;}
-    else if(z<15){density=55;step=125;} else if(z<16){density=67;step=75;} else {density=79;step=45;}
+    if(z<12){density=31;step=520;}
+    else if(z<13){density=47;step=320;}
+    else if(z<14){density=67;step=190;}
+    else if(z<15){density=87;step=115;}
+    else if(z<16){density=107;step=70;}
+    else {density=127;step=45;}
     const b=map.getBounds(), c=map.getCenter();
     const width=distanceM(b.getWest(),c.lat,b.getEast(),c.lat), height=distanceM(c.lng,b.getSouth(),c.lng,b.getNorth());
     const viewSpan=clamp(Math.max(width,height),900,26000);
-    return {density,step,crossSpan:clamp(viewSpan*0.95,900,24000),alongSpan:clamp(viewSpan*1.35,2200,30000)};
+    return {density,step,crossSpan:clamp(viewSpan*0.98,900,24000),alongSpan:clamp(viewSpan*1.38,2200,30000)};
   }
 
   function updateLocalDetailLabel(cfg){
     const el=$('localDensityLabel');
     if(!el) return;
-    if(!cfg||cfg.density===0){el.textContent='se densifica al ampliar';return;}
+    if(!cfg||cfg.density===0){el.textContent='alta densidad regional';return;}
     const spacing=Math.max(1,Math.round(cfg.crossSpan/Math.max(1,cfg.density-1)));
-    el.textContent=`${cfg.density} trazas locales · separación ~${spacing} m`;
+    el.textContent=`${cfg.density} trayectorias locales · separación ~${spacing} m`;
   }
 
   function buildLocalDetail(){
     if(!map.isStyleLoaded()) return;
     const cfg=localDetailConfig();
     updateLocalDetailLabel(cfg);
-    windModel.localStreams=[]; windModel.localSegments=[];
+    windModel.localStreams=[];
     if(cfg.density===0){renderDeck(performance.now());return;}
     const flow=(+$('direction').value+180)%360, center=map.getCenter(), crossStep=cfg.crossSpan/Math.max(1,cfg.density-1);
     for(let i=0;i<cfg.density;i++){
@@ -239,15 +237,15 @@
       let pos=destination(center.lng,center.lat,(flow+270)%360,cross);
       pos=destination(pos[0],pos[1],(flow+180)%360,cfg.alongSpan/2);
       const s=traceStream(pos,flow,cfg.alongSpan,cfg.step,i/Math.max(1,cfg.density),'local');
-      if(s.path.length>3){windModel.localStreams.push(s);windModel.localSegments.push(...s.segments);}
+      if(s.path.length>3) windModel.localStreams.push(s);
     }
     if(selectedPoint) buildSelectedStream(false);
     renderDeck(performance.now());
-    setStatus(`Detalle local activo · ${cfg.density} trazas 3D · aceleración Venturi activa`,'ok');
+    setStatus(`Detalle local activo · ${cfg.density} trayectorias · partículas densas · Venturi activo`,'ok');
   }
 
   function buildSelectedStream(showStatus=true){
-    windModel.selectedStream=null; windModel.selectedSegments=[];
+    windModel.selectedStream=null;
     if(!selectedPoint) return;
     const ground0=terrainElev(selectedPoint.lon,selectedPoint.lat);
     if(ground0===null){if(showStatus)setStatus('El MDT aún no está cargado en ese punto. Espera un momento y vuelve a hacer clic.','loading');return;}
@@ -277,18 +275,12 @@
     const forward=traceStream([selectedPoint.lon,selectedPoint.lat],flow,halfSpan,step,0,'selected');
     let path=backwards, values=backValues;
     if(forward.path.length){path=path.concat(forward.path.slice(1));values=values.concat(forward.values.slice(1));}
-    const segments=[];
-    for(let i=1;i<path.length;i++){
-      const v=values[i]||{w:0,wake:0,localSpeedKmh:baseSpeed,venturiBoost:0};
-      segments.push({a:path[i-1],b:path[i],color:colorFor(v.w,v.wake),w:v.w,wake:v.wake,kind:'selected',localSpeedKmh:v.localSpeedKmh,venturiBoost:v.venturiBoost});
-    }
-    windModel.selectedStream=finalizeStream({path,values,phase:0,kind:'selected',segments});
-    windModel.selectedSegments=segments;
+    windModel.selectedStream=finalizeStream({path,values,phase:0,kind:'selected'});
     pointerInfo={lon:selectedPoint.lon,lat:selectedPoint.lat,z:ground0*exag+24};
 
     const local=localFlowAt(selectedPoint.lon,selectedPoint.lat,from,baseSpeed,Math.max(70,probe));
     if(showStatus){
-      const txt=local?`Línea puntual · ${Math.round(local.elev)} m · ${local.localSpeedKmh.toFixed(0)} km/h local · w ${(local.w>=0?'+':'')+local.w.toFixed(1)} m/s`:'Línea puntual creada sobre el terreno';
+      const txt=local?`Detalle puntual · ${Math.round(local.elev)} m · ${local.localSpeedKmh.toFixed(0)} km/h local · w ${(local.w>=0?'+':'')+local.w.toFixed(1)} m/s`:'Detalle puntual creado sobre el terreno';
       setStatus(txt,'ok');
     }
   }
@@ -300,19 +292,21 @@
     const key=[from,speed,density,exag,stab].join('|');
     if(!force&&key===lastModelKey){modelBusy=false;return;}
     lastModelKey=key;
-    setStatus('Calculando campo 3D y aceleraciones locales…');
+    setStatus('Calculando campo 3D de alta densidad…');
     await new Promise(r=>setTimeout(r,25));
 
-    const flow=(from+180)%360, streams=[], segments=[], crossSpan=34000, alongSpan=54000, step=900, crossStep=crossSpan/Math.max(1,density-1);
+    const flow=(from+180)%360, streams=[], crossSpan=34000, alongSpan=54000, step=850;
+    const streamCount=clamp(Math.round(density*2.5),density,75);
+    const crossStep=crossSpan/Math.max(1,streamCount-1);
     let validCount=0;
-    for(let i=0;i<density;i++){
+    for(let i=0;i<streamCount;i++){
       const cross=-crossSpan/2+i*crossStep;
       let pos=destination(SITE.lon,SITE.lat,(flow+270)%360,cross);
       pos=destination(pos[0],pos[1],(flow+180)%360,alongSpan/2);
-      const s=traceStream(pos,flow,alongSpan,step,i/Math.max(1,density),'global');
-      if(s.path.length>4){validCount+=s.path.length;streams.push(s);segments.push(...s.segments);}
+      const s=traceStream(pos,flow,alongSpan,step,i/Math.max(1,streamCount),'global');
+      if(s.path.length>4){validCount+=s.path.length;streams.push(s);}
     }
-    windModel.globalStreams=streams; windModel.globalSegments=segments;
+    windModel.globalStreams=streams;
     buildLocalDetail();
     if(selectedPoint) buildSelectedStream(false);
 
@@ -325,14 +319,23 @@
       const ventEl=$('siteVenturi'); if(ventEl) ventEl.textContent=site.venturiBoost>0.03?'+'+Math.round(site.venturiBoost*100)+'% Venturi':'sin aceleración';
     }
     renderDeck(performance.now());
-    setStatus(validCount>100?'MDT cargado · partículas 3D con velocidad local actualizadas':'Esperando más teselas del MDT…',validCount>100?'ok':'loading');
+    setStatus(validCount>100?`MDT cargado · ${streamCount} trayectorias regionales · partículas 3D densas`:'Esperando más teselas del MDT…',validCount>100?'ok':'loading');
     modelBusy=false;
   }
 
+  // Cabeza de partícula: el tiempo se envuelve de forma cíclica.
   function sampleStreamByTime(stream,timeSec){
     if(!stream||!stream.path||stream.path.length<2||!stream.timeline) return null;
     const total=stream.totalTime||1;
-    let t=((timeSec%total)+total)%total;
+    const t=((timeSec%total)+total)%total;
+    return sampleStreamAtCycleTime(stream,t);
+  }
+
+  // Cola de partícula: NO se envuelve. Evita líneas largas al saltar del final al inicio.
+  function sampleStreamAtCycleTime(stream,t){
+    if(!stream||!stream.path||stream.path.length<2||!stream.timeline) return null;
+    const total=stream.totalTime||1;
+    if(t<0||t>total) return null;
     const timeline=stream.timeline;
     let lo=0,hi=timeline.length-1;
     while(lo<hi-1){const mid=(lo+hi)>>1;if(timeline[mid]<=t)lo=mid;else hi=mid;}
@@ -343,9 +346,14 @@
   }
 
   function particleSpacing(kind,zoom){
-    if(kind==='selected') return 420;
-    if(kind==='global') return zoom<11?3600:2800;
-    if(zoom<12)return 1300;if(zoom<13)return 900;if(zoom<14)return 620;if(zoom<15)return 420;if(zoom<16)return 290;return 190;
+    if(kind==='selected') return 80;
+    if(kind==='global') return zoom<11?900:650;
+    if(zoom<12)return 390;
+    if(zoom<13)return 280;
+    if(zoom<14)return 195;
+    if(zoom<15)return 135;
+    if(zoom<16)return 90;
+    return 55;
   }
 
   function particleVisualData(t){
@@ -356,25 +364,34 @@
     if(windModel.selectedStream) streams.push(windModel.selectedStream);
 
     streams.forEach((s,streamIndex)=>{
-      const spacing=particleSpacing(s.kind||'global',zoom);
-      const count=clamp(Math.round((s.lengthM||1)/spacing),2,s.kind==='selected'?24:30);
+      const kind=s.kind||'global';
+      const spacing=particleSpacing(kind,zoom);
+      const maxCount=kind==='selected'?120:kind==='local'?90:75;
+      const count=clamp(Math.round((s.lengthM||1)/spacing),3,maxCount);
       const seed=((streamIndex*0.61803398875)+(s.phase||0))%1;
       const totalTime=s.totalTime||1;
-      const trailSeconds=s.kind==='selected'?clamp(baseSpeed*2.3,24,95):clamp(baseSpeed*1.8,18,75);
+      const trailSeconds=kind==='selected'?clamp(baseSpeed*0.9,8,36):clamp(baseSpeed*0.65,6,28);
 
       for(let k=0;k<count;k++){
         const offset=((k/count+seed)%1)*totalTime;
-        const headTime=visualTime+offset;
+        const rawHeadTime=visualTime+offset;
+        const headCycle=((rawHeadTime%totalTime)+totalTime)%totalTime;
+        const head=sampleStreamAtCycleTime(s,headCycle);
+        if(!head) continue;
+
         const samples=[];
         for(let j=3;j>=0;j--){
-          const smp=sampleStreamByTime(s,headTime-trailSeconds*(j/3));
+          const tailTime=headCycle-trailSeconds*(j/3);
+          if(tailTime<0) continue;
+          const smp=sampleStreamAtCycleTime(s,tailTime);
           if(smp) samples.push(smp.position);
         }
-        const head=sampleStreamByTime(s,headTime);
-        if(!head||samples.length<2) continue;
+        samples.push(head.position);
+        if(samples.length<2) continue;
+
         const c=colorFor(head.value.w,head.value.wake);
-        trails.push({path:samples,color:c,kind:s.kind||'global',speed:head.value.localSpeedKmh||baseSpeed});
-        heads.push({position:head.position,color:c,kind:s.kind||'global',speed:head.value.localSpeedKmh||baseSpeed});
+        trails.push({path:samples,color:c,kind,speed:head.value.localSpeedKmh||baseSpeed});
+        heads.push({position:head.position,color:c,kind,speed:head.value.localSpeedKmh||baseSpeed});
       }
     });
     return {trails,heads};
@@ -383,33 +400,34 @@
   function renderDeck(t){
     if(!overlay) return;
     const layers=[];
-    if($('windLines').checked){
-      layers.push(new PathLayer({id:'wind-global-guides',data:windModel.globalSegments,getPath:d=>[d.a,d.b],getColor:d=>guideColor(d.color,55),getWidth:1,widthUnits:'pixels',jointRounded:true,capRounded:true,pickable:false,parameters:{depthTest:true}}));
-      if(windModel.localSegments.length) layers.push(new PathLayer({id:'wind-local-guides',data:windModel.localSegments,getPath:d=>[d.a,d.b],getColor:d=>guideColor(d.color,45),getWidth:0.9,widthUnits:'pixels',jointRounded:true,capRounded:true,pickable:false,parameters:{depthTest:true}}));
-    }
-
     const particles=particleVisualData(t);
+
     if($('particles').checked&&particles.trails.length){
-      layers.push(new PathLayer({id:'wind-particle-trails',data:particles.trails,getPath:d=>d.path,getColor:d=>d.color,getWidth:d=>d.kind==='selected'?3.4:d.kind==='local'?2.2:1.9,widthUnits:'pixels',jointRounded:true,capRounded:true,pickable:false,parameters:{depthTest:true}}));
-      layers.push(new ScatterplotLayer({id:'wind-particle-heads',data:particles.heads,getPosition:d=>d.position,getFillColor:d=>d.color,getRadius:d=>d.kind==='selected'?2.9:2.1,radiusUnits:'pixels',stroked:false,filled:true,pickable:false,parameters:{depthTest:true}}));
+      layers.push(new PathLayer({
+        id:'wind-particle-trails',data:particles.trails,
+        getPath:d=>d.path,getColor:d=>d.color,
+        getWidth:d=>d.kind==='selected'?2.9:d.kind==='local'?1.8:1.55,
+        widthUnits:'pixels',jointRounded:true,capRounded:true,pickable:false,
+        parameters:{depthTest:true}
+      }));
+      layers.push(new ScatterplotLayer({
+        id:'wind-particle-heads',data:particles.heads,
+        getPosition:d=>d.position,getFillColor:d=>d.color,
+        getRadius:d=>d.kind==='selected'?2.5:1.65,
+        radiusUnits:'pixels',stroked:false,filled:true,pickable:false,
+        parameters:{depthTest:true}
+      }));
     }
 
-    if(windModel.selectedSegments.length){
-      layers.push(new PathLayer({id:'selected-halo',data:windModel.selectedSegments,getPath:d=>[d.a,d.b],getColor:[255,255,255,205],getWidth:6.2,widthUnits:'pixels',jointRounded:true,capRounded:true,pickable:false,parameters:{depthTest:true}}));
-      layers.push(new PathLayer({id:'selected-flow',data:windModel.selectedSegments,getPath:d=>[d.a,d.b],getColor:d=>d.color,getWidth:3.2,widthUnits:'pixels',jointRounded:true,capRounded:true,pickable:false,parameters:{depthTest:true}}));
-    }
-
-    if(pointerInfo) layers.push(new ScatterplotLayer({id:'probe',data:[pointerInfo],getPosition:d=>[d.lon,d.lat,d.z],getFillColor:[255,255,255,235],getLineColor:[10,10,10,220],stroked:true,filled:true,getRadius:6.5,radiusUnits:'pixels',lineWidthMinPixels:1.3,pickable:false}));
+    if(pointerInfo) layers.push(new ScatterplotLayer({
+      id:'probe',data:[pointerInfo],getPosition:d=>[d.lon,d.lat,d.z],
+      getFillColor:[255,255,255,235],getLineColor:[10,10,10,220],stroked:true,filled:true,
+      getRadius:6.5,radiusUnits:'pixels',lineWidthMinPixels:1.3,pickable:false
+    }));
     overlay.setProps({layers});
   }
 
   function animate(t){renderDeck(t);animId=requestAnimationFrame(animate);}
-
-  function addAreaBox(){
-    const nw=[areaSW[0],areaNE[1]],se=[areaNE[0],areaSW[1]];
-    map.addSource('study-area',{type:'geojson',data:{type:'FeatureCollection',features:[{type:'Feature',properties:{},geometry:{type:'LineString',coordinates:[areaSW,se,areaNE,nw,areaSW]}}]}});
-    map.addLayer({id:'study-area',type:'line',source:'study-area',paint:{'line-color':'rgba(255,255,255,.55)','line-width':1.2,'line-dasharray':[3,3]}});
-  }
 
   function updateUI(){
     const d=+$('direction').value,s=+$('speed').value,flow=(d+180)%360,label=compassLabel(d);
@@ -428,7 +446,6 @@
   $('stability').addEventListener('change',()=>scheduleRecalc(80));
   $('exag').addEventListener('input',()=>{updateUI();map.setTerrain({source:'terrain',exaggeration:getExag()});scheduleRecalc(220);});
   $('particles').addEventListener('change',()=>renderDeck(performance.now()));
-  $('windLines').addEventListener('change',()=>renderDeck(performance.now()));
   $('hillshade').addEventListener('change',()=>map.setLayoutProperty('hillshade','visibility',$('hillshade').checked?'visible':'none'));
   $('ortho').addEventListener('change',()=>map.setLayoutProperty('ortho','visibility',$('ortho').checked?'visible':'none'));
   $('recalc').addEventListener('click',()=>buildWindModel(true));
@@ -442,7 +459,7 @@
     const local=localFlowAt(e.lngLat.lng,e.lngLat.lat,+$('direction').value,+$('speed').value,probe);
     tip.style.display='block';tip.style.left=(e.originalEvent.clientX+12)+'px';tip.style.top=(e.originalEvent.clientY+12)+'px';
     const speedLine=local?`<br>Vel. local: ${local.localSpeedKmh.toFixed(0)} km/h${local.venturiBoost>0.03?` · Venturi +${Math.round(local.venturiBoost*100)}%`:''}`:'';
-    tip.innerHTML=`<b>${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}</b><br>Terreno: ${Math.round(elev)} m${local?`<br>w orográfica: ${(local.w>=0?'+':'')+local.w.toFixed(1)} m/s`:''}${speedLine}<br><span style="opacity:.75">clic: línea puntual</span>`;
+    tip.innerHTML=`<b>${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}</b><br>Terreno: ${Math.round(elev)} m${local?`<br>w orográfica: ${(local.w>=0?'+':'')+local.w.toFixed(1)} m/s`:''}${speedLine}<br><span style="opacity:.75">clic: detalle puntual</span>`;
   });
   map.on('mouseleave',()=>tip.style.display='none');
 
@@ -455,11 +472,11 @@
     const local=localFlowAt(e.lngLat.lng,e.lngLat.lat,+$('direction').value,+$('speed').value,probe);
     if(clickPopup)clickPopup.remove();
     const details=local?`<br>Altitud: <strong>${Math.round(local.elev)} m</strong><br>Velocidad local: <strong>${local.localSpeedKmh.toFixed(0)} km/h</strong>${local.venturiBoost>0.03?` <small>(Venturi +${Math.round(local.venturiBoost*100)}%)</small>`:''}<br>w estimada: <strong>${(local.w>=0?'+':'')+local.w.toFixed(1)} m/s</strong><br>${classFor(local.w,0)}`:'';
-    clickPopup=new maplibregl.Popup({offset:14,closeButton:true,closeOnClick:false}).setLngLat([e.lngLat.lng,e.lngLat.lat]).setHTML(`<b>Línea puntual de viento</b>${details}<br><small>${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}</small>`).addTo(map);
+    clickPopup=new maplibregl.Popup({offset:14,closeButton:true,closeOnClick:false}).setLngLat([e.lngLat.lng,e.lngLat.lat]).setHTML(`<b>Detalle puntual de viento</b>${details}<br><small>${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}</small>`).addTo(map);
   });
 
   map.on('load',()=>{
-    addAreaBox();overlay=new MapboxOverlay({interleaved:true,layers:[]});map.addControl(overlay);
+    overlay=new MapboxOverlay({interleaved:true,layers:[]});map.addControl(overlay);
     map.fitBounds([areaSW,areaNE],{padding:{top:90,bottom:80,left:390,right:90},pitch:64,bearing:28,duration:0});
     updateUI();updateLocalDetailLabel(localDetailConfig());setTimeout(()=>buildWindModel(true),1300);
     cancelAnimationFrame(animId);animId=requestAnimationFrame(animate);
