@@ -11,7 +11,7 @@
 <div id="map"></div>
 <div class="panel">
   <div class="head">
-    <div class="title">🪂 Pitolero Wind Lab <span class="badge">v2.4</span></div>
+    <div class="title">🪂 Pitolero Wind Lab <span class="badge">v2.5</span></div>
     <div class="subtitle">Orografía 3D real del IGN + flujo de viento tridimensional para vuelo libre.</div>
   </div>
   <div class="section">
@@ -31,7 +31,7 @@
   <div class="section">
     <div class="row"><span class="label">Densidad base del flujo</span><span class="value" id="densityLabel">27</span></div>
     <input id="density" type="range" min="7" max="27" step="2" value="27" />
-    <div class="notice" style="margin-top:6px">Detalle automático: <strong id="localDensityLabel">se densifica al ampliar</strong>. Al hacer zoom aumenta la resolución espacial del campo de partículas.</div>
+    <div class="notice" style="margin-top:6px">La densidad visual es ahora mucho mayor. <strong id="localDensityLabel">alta densidad regional</strong>. Al ampliar se añaden muchas más trayectorias locales y partículas.</div>
     <div class="row" style="margin-top:10px"><span class="label">Exageración del relieve</span><span class="value" id="exagLabel">1.35×</span></div>
     <input id="exag" type="range" min="1" max="2.2" step="0.05" value="1.35" />
   </div>
@@ -50,10 +50,9 @@
       <label class="switch"><input id="particles" type="checkbox" checked /> partículas 3D</label>
       <label class="switch"><input id="hillshade" type="checkbox" checked /> sombreado</label>
       <label class="switch"><input id="ortho" type="checkbox" checked /> ortofoto PNOA</label>
-      <label class="switch"><input id="windLines" type="checkbox" /> líneas guía</label>
     </div>
     <div class="actions" style="margin-top:9px"><button id="resetView">Vista Pitolero</button><button id="recalc">Recalcular flujo</button></div>
-    <div class="notice" style="margin-top:9px"><strong>Partículas 3D:</strong> su velocidad de desplazamiento cambia localmente según el relieve. En collados y corredores donde el terreno estrecha el flujo se aceleran visualmente; en sotavento se mantiene la clasificación de estela/rotor. <strong>Detalle puntual:</strong> haz clic sobre el terreno para inspeccionar velocidad local, componente vertical y una línea completa de flujo.</div>
+    <div class="notice" style="margin-top:9px"><strong>Solo partículas:</strong> se han eliminado las líneas guía y las líneas continuas de viento. Las trazas son cortas y animadas, con velocidad local variable. <strong>Detalle puntual:</strong> haz clic sobre el terreno para densificar la trayectoria que pasa por ese punto y consultar velocidad local, Venturi y componente vertical.</div>
   </div>
   <div class="section">
     <div class="legend"><div class="lg"><span class="sw up"></span>ascendencia</div><div class="lg"><span class="sw neutral"></span>flujo neutro</div><div class="lg"><span class="sw down"></span>descendencia</div><div class="lg"><span class="sw wake"></span>estela/rotor</div></div>
