@@ -2,53 +2,62 @@
   'use strict';
 
   const mobileMq=window.matchMedia('(max-width:720px)');
-  if(!mobileMq.matches) return;
+  const isMobile=mobileMq.matches;
+  const lowPower=(navigator.hardwareConcurrency&&navigator.hardwareConcurrency<=4)||(navigator.deviceMemory&&navigator.deviceMemory<=4)||(navigator.connection&&navigator.connection.saveData);
 
-  // En móvil, el mapa 3D + deck.gl puede consumir demasiada CPU/GPU si se
-  // renderiza a 60 fps mientras el usuario desplaza el panel. Limitamos los
-  // frames a ~25 fps normalmente y a ~8 fps con los controles abiertos.
+  /*
+   * Importante: NO limitamos el requestAnimationFrame global de MapLibre.
+   * La versión anterior ralentizaba también el propio mapa. Aquí solo
+   * limitamos el bucle de partículas de Pitoviento (callback llamado animate).
+   */
   const nativeRAF=window.requestAnimationFrame.bind(window);
   const nativeCAF=window.cancelAnimationFrame.bind(window);
-  let publicId=1;
-  const pending=new Map();
+  const nativeSetTimeout=window.setTimeout.bind(window);
+  const nativeClearTimeout=window.clearTimeout.bind(window);
+  let nextParticleId=-1;
+  const particleJobs=new Map();
+  let mapInteracting=false;
 
-  function intervalMs(){
-    if(document.hidden) return 250;
-    return document.body.classList.contains('controls-open') ? 120 : 40;
+  function particleInterval(){
+    if(document.hidden) return 1000;
+    if(isMobile&&document.body.classList.contains('controls-open')) return 500;
+    if(isMobile&&mapInteracting) return 100;
+    if(isMobile) return lowPower?85:62;   // ~12–16 fps
+    return 33;                            // ~30 fps escritorio
   }
 
-  function schedule(id){
-    const item=pending.get(id);
-    if(!item) return;
-    item.nativeId=nativeRAF(ts=>{
-      const current=pending.get(id);
-      if(!current) return;
-      if(ts-current.startedAt>=intervalMs()){
-        pending.delete(id);
-        current.callback(ts);
-      }else{
-        schedule(id);
-      }
-    });
+  function isPitovientoParticleLoop(callback){
+    return typeof callback==='function'&&callback.name==='animate';
   }
 
   window.requestAnimationFrame=callback=>{
-    const id=publicId++;
-    pending.set(id,{callback,startedAt:performance.now(),nativeId:0});
-    schedule(id);
+    if(!isPitovientoParticleLoop(callback)) return nativeRAF(callback);
+
+    const id=nextParticleId--;
+    const job={timeoutId:0,nativeId:0,cancelled:false};
+    particleJobs.set(id,job);
+    job.timeoutId=nativeSetTimeout(()=>{
+      if(job.cancelled) return;
+      job.nativeId=nativeRAF(ts=>{
+        particleJobs.delete(id);
+        if(!job.cancelled) callback(ts);
+      });
+    },particleInterval());
     return id;
   };
 
   window.cancelAnimationFrame=id=>{
-    const item=pending.get(id);
-    if(item){
-      nativeCAF(item.nativeId);
-      pending.delete(id);
+    if(id<0&&particleJobs.has(id)){
+      const job=particleJobs.get(id);
+      job.cancelled=true;
+      nativeClearTimeout(job.timeoutId);
+      if(job.nativeId) nativeCAF(job.nativeId);
+      particleJobs.delete(id);
+      return;
     }
+    nativeCAF(id);
   };
 
-  // Impide que los gestos verticales del menú lleguen al canvas de MapLibre.
-  // No usamos preventDefault para conservar el scroll nativo/inercial.
   function isolateScrollable(el){
     if(!el) return;
     ['touchstart','touchmove','touchend','pointerdown','pointermove','pointerup','wheel'].forEach(type=>{
@@ -59,5 +68,17 @@
   window.addEventListener('DOMContentLoaded',()=>{
     isolateScrollable(document.getElementById('controlPanel'));
     isolateScrollable(document.getElementById('detailPanel'));
+
+    const mapEl=document.getElementById('map');
+    if(mapEl){
+      const start=()=>{mapInteracting=true;};
+      const stop=()=>{mapInteracting=false;};
+      mapEl.addEventListener('pointerdown',start,{passive:true});
+      mapEl.addEventListener('touchstart',start,{passive:true});
+      window.addEventListener('pointerup',stop,{passive:true});
+      window.addEventListener('pointercancel',stop,{passive:true});
+      window.addEventListener('touchend',stop,{passive:true});
+      window.addEventListener('touchcancel',stop,{passive:true});
+    }
   },{once:true});
 })();
