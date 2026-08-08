@@ -98,9 +98,9 @@
 
   function stabilityParams(){
     const s=$('stability').value;
-    if(s==='stable') return {lift:1.08,wake:1.45,steer:1.25,mix:0.72};
-    if(s==='unstable') return {lift:0.82,wake:0.52,steer:0.75,mix:1.35};
-    return {lift:0.96,wake:1.0,steer:1.0,mix:1.0};
+    if(s==='stable') return {lift:1.08,wake:1.45,mix:0.72};
+    if(s==='unstable') return {lift:0.82,wake:0.52,mix:1.35};
+    return {lift:0.96,wake:1.0,mix:1.0};
   }
 
   // Proxy diagnóstico de aceleración por estrechamiento lateral del relieve.
@@ -154,10 +154,13 @@
     return stream;
   }
 
+  // El rumbo horizontal permanece bloqueado al flujo meteorológico seleccionado.
+  // El relieve solo modifica velocidad y componente vertical en este modelo.
   function traceStream(start,flow,totalM,step,phase,kind){
     const baseSpeed=+$('speed').value, p=stabilityParams(), exag=getExag();
     const path=[], values=[];
-    let pos=[start[0],start[1]], bearing=flow, crest=-Infinity, crestAge=999999, airAlt=null;
+    let pos=[start[0],start[1]], crest=-Infinity, crestAge=999999, airAlt=null;
+    const bearing=flow;
     const probe=clamp(step*0.65,55,420);
 
     for(let traveled=0;traveled<=totalM;traveled+=step){
@@ -169,7 +172,6 @@
       const right=destination(pos[0],pos[1],(bearing+90)%360,probe);
       const hA=terrainElev(ahead[0],ahead[1]), hL=terrainElev(left[0],left[1]), hR=terrainElev(right[0],right[1]);
       const alongSlope=hA===null?0:(hA-ground)/probe;
-      const crossSlope=hL===null||hR===null?0:(hR-hL)/(2*probe);
       const vent=venturiAt(pos[0],pos[1],bearing,ground,probe,hL,hR);
       const rawLocalSpeed=baseSpeed*vent.factor;
       const localU=rawLocalSpeed/3.6;
@@ -191,10 +193,6 @@
 
       path.push([pos[0],pos[1],ground*exag+(airAlt-ground)]);
       values.push({w,wake,ground,localSpeedKmh,venturiBoost:vent.boost});
-
-      const turnLimit=kind==='local'?5.0:4.0;
-      const turn=clamp(-crossSlope*140*p.steer,-turnLimit,turnLimit);
-      bearing=(bearing+turn+360)%360;
       pos=destination(pos[0],pos[1],bearing,step);
     }
 
@@ -241,7 +239,7 @@
     }
     if(selectedPoint) buildSelectedStream(false);
     renderDeck(performance.now());
-    setStatus(`Detalle local activo · ${cfg.density} trayectorias · partículas densas · Venturi activo`,'ok');
+    setStatus(`Detalle local activo · ${cfg.density} trayectorias paralelas · partículas densas · Venturi activo`,'ok');
   }
 
   function buildSelectedStream(showStatus=true){
@@ -253,21 +251,20 @@
     const from=+$('direction').value, baseSpeed=+$('speed').value, flow=(from+180)%360, exag=getExag(), cfg=localDetailConfig();
     const step=clamp(cfg.step||220,45,260), halfSpan=clamp((cfg.alongSpan||8000)*0.55,3000,9000), minAgl=80+baseSpeed*1.5;
     const p=stabilityParams(), backwards=[], backValues=[];
-    let pos=[selectedPoint.lon,selectedPoint.lat], bearing=flow, airAlt=ground0+minAgl;
+    let pos=[selectedPoint.lon,selectedPoint.lat], airAlt=ground0+minAgl;
+    const bearing=flow;
     const probe=clamp(step*0.65,45,220);
 
     for(let traveled=0;traveled<=halfSpan;traveled+=step){
       const ground=terrainElev(pos[0],pos[1]); if(ground===null) break;
       const ahead=destination(pos[0],pos[1],bearing,probe), left=destination(pos[0],pos[1],(bearing+270)%360,probe), right=destination(pos[0],pos[1],(bearing+90)%360,probe);
       const hA=terrainElev(ahead[0],ahead[1]), hL=terrainElev(left[0],left[1]), hR=terrainElev(right[0],right[1]);
-      const alongSlope=hA===null?0:(hA-ground)/probe, crossSlope=hL===null||hR===null?0:(hR-hL)/(2*probe);
+      const alongSlope=hA===null?0:(hA-ground)/probe;
       const vent=venturiAt(pos[0],pos[1],bearing,ground,probe,hL,hR), localSpeedKmh=baseSpeed*vent.factor, U=localSpeedKmh/3.6;
       const w=clamp(U*alongSlope*1.55*p.lift,-5.5,5.5), dt=step/Math.max(U,2.2);
       airAlt-=w*dt*0.28; airAlt+=(ground+minAgl-airAlt)*0.34; airAlt=Math.max(airAlt,ground+60);
       backwards.push([pos[0],pos[1],ground*exag+(airAlt-ground)]);
       backValues.push({w,wake:0,ground,localSpeedKmh,venturiBoost:vent.boost});
-      const turn=clamp(-crossSlope*140*p.steer,-5,5);
-      bearing=(bearing-turn+360)%360;
       pos=destination(pos[0],pos[1],(bearing+180)%360,step);
     }
 
@@ -319,19 +316,10 @@
       const ventEl=$('siteVenturi'); if(ventEl) ventEl.textContent=site.venturiBoost>0.03?'+'+Math.round(site.venturiBoost*100)+'% Venturi':'sin aceleración';
     }
     renderDeck(performance.now());
-    setStatus(validCount>100?`MDT cargado · ${streamCount} trayectorias regionales · partículas 3D densas`:'Esperando más teselas del MDT…',validCount>100?'ok':'loading');
+    setStatus(validCount>100?`MDT cargado · ${streamCount} trayectorias regionales paralelas · partículas 3D densas`:'Esperando más teselas del MDT…',validCount>100?'ok':'loading');
     modelBusy=false;
   }
 
-  // Cabeza de partícula: el tiempo se envuelve de forma cíclica.
-  function sampleStreamByTime(stream,timeSec){
-    if(!stream||!stream.path||stream.path.length<2||!stream.timeline) return null;
-    const total=stream.totalTime||1;
-    const t=((timeSec%total)+total)%total;
-    return sampleStreamAtCycleTime(stream,t);
-  }
-
-  // Cola de partícula: NO se envuelve. Evita líneas largas al saltar del final al inicio.
   function sampleStreamAtCycleTime(stream,t){
     if(!stream||!stream.path||stream.path.length<2||!stream.timeline) return null;
     const total=stream.totalTime||1;
