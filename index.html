@@ -11,7 +11,7 @@
 <div id="map"></div>
 <div class="panel">
   <div class="head">
-    <div class="title">🪂 Pitolero Wind Lab <span class="badge">v2.3</span></div>
+    <div class="title">🪂 Pitolero Wind Lab <span class="badge">v2.4</span></div>
     <div class="subtitle">Orografía 3D real del IGN + flujo de viento tridimensional para vuelo libre.</div>
   </div>
   <div class="section">
@@ -39,8 +39,10 @@
     <div class="metrics">
       <div class="metric"><div class="k">Pitolero</div><div class="v" id="siteElev">— m</div><div class="s">elevación DEM</div></div>
       <div class="metric"><div class="k">w estimada</div><div class="v" id="siteW">— m/s</div><div class="s" id="siteClass">esperando terreno</div></div>
+      <div class="metric"><div class="k">Velocidad local</div><div class="v" id="siteLocalSpeed">— km/h</div><div class="s" id="siteVenturi">calculando relieve</div></div>
       <div class="metric"><div class="k">Dirección flujo</div><div class="v" id="flowDir">135°</div><div class="s">hacia sotavento</div></div>
       <div class="metric"><div class="k">Área</div><div class="v">40 × 40</div><div class="s">km alrededor</div></div>
+      <div class="metric"><div class="k">Modelo local</div><div class="v">Venturi</div><div class="s">aceleración por estrechamiento</div></div>
     </div>
   </div>
   <div class="section">
@@ -51,14 +53,14 @@
       <label class="switch"><input id="windLines" type="checkbox" /> líneas guía</label>
     </div>
     <div class="actions" style="margin-top:9px"><button id="resetView">Vista Pitolero</button><button id="recalc">Recalcular flujo</button></div>
-    <div class="notice" style="margin-top:9px"><strong>Partículas 3D:</strong> se desplazan más rápido cuanto mayor es la velocidad del viento y siguen la trayectoria vertical calculada sobre el relieve. <strong>Detalle puntual:</strong> haz clic sobre el terreno para mantener una línea completa de inspección en ese punto.</div>
+    <div class="notice" style="margin-top:9px"><strong>Partículas 3D:</strong> su velocidad de desplazamiento cambia localmente según el relieve. En collados y corredores donde el terreno estrecha el flujo se aceleran visualmente; en sotavento se mantiene la clasificación de estela/rotor. <strong>Detalle puntual:</strong> haz clic sobre el terreno para inspeccionar velocidad local, componente vertical y una línea completa de flujo.</div>
   </div>
   <div class="section">
     <div class="legend"><div class="lg"><span class="sw up"></span>ascendencia</div><div class="lg"><span class="sw neutral"></span>flujo neutro</div><div class="lg"><span class="sw down"></span>descendencia</div><div class="lg"><span class="sw wake"></span>estela/rotor</div></div>
   </div>
   <div class="section">
     <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">Cargando mapa y MDT oficial…</span></div>
-    <div class="notice" style="margin-top:9px"><strong>Importante:</strong> es una herramienta de análisis orográfico, no una predicción CFD ni sustituye la evaluación meteorológica del piloto. La versión actual usa el servicio oficial MDT05 (5 m de origen LiDAR); el MDT50 cm se incorporará como detalle local.</div>
+    <div class="notice" style="margin-top:9px"><strong>Importante:</strong> es una herramienta de análisis orográfico, no una predicción CFD ni sustituye la evaluación meteorológica del piloto. La aceleración Venturi es una estimación diagnóstica derivada de la geometría local del terreno. La versión actual usa el servicio oficial MDT05 (5 m de origen LiDAR).</div>
   </div>
 </div>
 <div class="wind-chip"><div id="windArrow" class="arrow">➜</div><div><div class="big"><span id="chipDir">NO</span> · <span id="chipSpeed">20</span> km/h</div><div class="small">viento meteorológico · desde</div></div></div>
