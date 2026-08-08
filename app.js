@@ -8,32 +8,26 @@
   const BASE_URL = 'https://tms-ign-base.idee.es/1.0.0/IGNBaseTodo/{z}/{x}/{y}.jpeg';
 
   const $ = id => document.getElementById(id);
-  const clamp = (x,a,b) => Math.max(a, Math.min(b, x));
-  const rad = d => d * Math.PI / 180;
-  const deg = r => r * 180 / Math.PI;
+  const clamp = (x,a,b) => Math.max(a,Math.min(b,x));
+  const rad = d => d*Math.PI/180;
+  const deg = r => r*180/Math.PI;
 
-  function destination(lon, lat, bearingDeg, distM){
-    const R = 6371008.8;
-    const br = rad(bearingDeg);
-    const d = distM / R;
-    const p1 = rad(lat);
-    const l1 = rad(lon);
-    const p2 = Math.asin(Math.sin(p1)*Math.cos(d) + Math.cos(p1)*Math.sin(d)*Math.cos(br));
-    const l2 = l1 + Math.atan2(Math.sin(br)*Math.sin(d)*Math.cos(p1), Math.cos(d)-Math.sin(p1)*Math.sin(p2));
-    return [((deg(l2)+540)%360)-180, deg(p2)];
+  function destination(lon,lat,bearingDeg,distM){
+    const R=6371008.8, br=rad(bearingDeg), d=distM/R, p1=rad(lat), l1=rad(lon);
+    const p2=Math.asin(Math.sin(p1)*Math.cos(d)+Math.cos(p1)*Math.sin(d)*Math.cos(br));
+    const l2=l1+Math.atan2(Math.sin(br)*Math.sin(d)*Math.cos(p1),Math.cos(d)-Math.sin(p1)*Math.sin(p2));
+    return [((deg(l2)+540)%360)-180,deg(p2)];
   }
 
   function distanceM(aLon,aLat,bLon,bLat){
-    const R = 6371008.8;
-    const p1 = rad(aLat), p2 = rad(bLat);
-    const dp = rad(bLat-aLat), dl = rad(bLon-aLon);
-    const h = Math.sin(dp/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+    const R=6371008.8, p1=rad(aLat), p2=rad(bLat), dp=rad(bLat-aLat), dl=rad(bLon-aLon);
+    const h=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
     return 2*R*Math.asin(Math.sqrt(h));
   }
 
   function pathLength(path){
-    let total = 0;
-    for(let i=1;i<path.length;i++) total += distanceM(path[i-1][0],path[i-1][1],path[i][0],path[i][1]);
+    let total=0;
+    for(let i=1;i<path.length;i++) total+=distanceM(path[i-1][0],path[i-1][1],path[i][0],path[i][1]);
     return Math.max(total,1);
   }
 
@@ -58,10 +52,10 @@
     return 'flujo casi neutro';
   }
 
-  const areaSW = destination(...destination(SITE.lon,SITE.lat,180,AREA_KM*500),270,AREA_KM*500);
-  const areaNE = destination(...destination(SITE.lon,SITE.lat,0,AREA_KM*500),90,AREA_KM*500);
+  const areaSW=destination(...destination(SITE.lon,SITE.lat,180,AREA_KM*500),270,AREA_KM*500);
+  const areaNE=destination(...destination(SITE.lon,SITE.lat,0,AREA_KM*500),90,AREA_KM*500);
 
-  const style = {
+  const style={
     version:8,
     sources:{
       ignbase:{type:'raster',tiles:[BASE_URL],tileSize:256,scheme:'tms',maxzoom:18,attribution:'© IGN/CNIG · CC BY 4.0 scne.es'},
@@ -76,544 +70,363 @@
     terrain:{source:'terrain',exaggeration:1.35}
   };
 
-  const map = new maplibregl.Map({
-    container:'map', style,
-    center:[SITE.lon,SITE.lat], zoom:10.15, pitch:66, bearing:28,
-    maxPitch:85, maxZoom:18, antialias:true, hash:false
-  });
+  const map=new maplibregl.Map({container:'map',style,center:[SITE.lon,SITE.lat],zoom:10.15,pitch:66,bearing:28,maxPitch:85,maxZoom:18,antialias:true,hash:false});
   map.addControl(new maplibregl.NavigationControl({visualizePitch:true,showCompass:true,showZoom:true}),'top-right');
   map.addControl(new maplibregl.ScaleControl({maxWidth:120,unit:'metric'}),'bottom-right');
 
-  const markerEl = document.createElement('div');
-  markerEl.className = 'site-marker';
-  markerEl.title = 'Pico Pitolero';
-  new maplibregl.Marker({element:markerEl,anchor:'center'})
-    .setLngLat([SITE.lon,SITE.lat])
-    .setPopup(new maplibregl.Popup({offset:14}).setHTML('<b>Pico Pitolero</b><br>Cabezabellosa · Cáceres'))
-    .addTo(map);
+  const markerEl=document.createElement('div');
+  markerEl.className='site-marker';
+  markerEl.title='Pico Pitolero';
+  new maplibregl.Marker({element:markerEl,anchor:'center'}).setLngLat([SITE.lon,SITE.lat]).setPopup(new maplibregl.Popup({offset:14}).setHTML('<b>Pico Pitolero</b><br>Cabezabellosa · Cáceres')).addTo(map);
 
-  let overlay = null;
-  let animId = 0;
-  let modelBusy = false;
-  let lastModelKey = '';
-  let localTimer = 0;
-  let recalcTimer = 0;
-  let pointerInfo = null;
-  let selectedPoint = null;
-  let clickPopup = null;
-
-  let windModel = {
-    globalStreams:[], globalSegments:[],
-    localStreams:[], localSegments:[],
-    selectedStream:null, selectedSegments:[]
-  };
-
-  const {MapboxOverlay,PathLayer,ScatterplotLayer} = deck;
+  let overlay=null, animId=0, modelBusy=false, lastModelKey='', localTimer=0, recalcTimer=0;
+  let pointerInfo=null, selectedPoint=null, clickPopup=null;
+  let windModel={globalStreams:[],globalSegments:[],localStreams:[],localSegments:[],selectedStream:null,selectedSegments:[]};
+  const {MapboxOverlay,PathLayer,ScatterplotLayer}=deck;
 
   function setStatus(text,state='loading'){
-    $('statusText').textContent = text;
-    $('statusDot').className = 'dot ' + (state==='ok'?'ok':state==='err'?'err':'');
+    $('statusText').textContent=text;
+    $('statusDot').className='dot '+(state==='ok'?'ok':state==='err'?'err':'');
   }
 
   function getExag(){ return +$('exag').value; }
 
   function terrainElev(lon,lat){
     try{
-      const v = map.queryTerrainElevation([lon,lat],{exaggerated:false});
-      return Number.isFinite(v) ? v : null;
-    }catch(e){
-      return null;
-    }
+      const v=map.queryTerrainElevation([lon,lat],{exaggerated:false});
+      return Number.isFinite(v)?v:null;
+    }catch(e){ return null; }
   }
 
   function stabilityParams(){
-    const s = $('stability').value;
+    const s=$('stability').value;
     if(s==='stable') return {lift:1.08,wake:1.45,steer:1.25,mix:0.72};
     if(s==='unstable') return {lift:0.82,wake:0.52,steer:0.75,mix:1.35};
     return {lift:0.96,wake:1.0,steer:1.0,mix:1.0};
   }
 
-  function localFlowAt(lon,lat,fromDeg,speedKmh,probe=180){
-    const flow = (fromDeg+180)%360;
-    const U = speedKmh/3.6;
-    const p = stabilityParams();
-    const a = destination(lon,lat,(flow+180)%360,probe);
-    const b = destination(lon,lat,flow,probe);
-    const h0 = terrainElev(lon,lat);
-    const ha = terrainElev(a[0],a[1]);
-    const hb = terrainElev(b[0],b[1]);
-    if([h0,ha,hb].some(v=>v===null)) return null;
-    const slope = (hb-ha)/(2*probe);
-    const w = clamp(U*slope*1.55*p.lift,-5.5,5.5);
-    return {elev:h0,w,slope};
+  // Proxy diagnóstico de aceleración por estrechamiento lateral del relieve.
+  // Si el terreno asciende a ambos lados del flujo, aumenta la velocidad local.
+  function venturiAt(lon,lat,bearing,ground,probe,hL=null,hR=null){
+    const l1=hL===null?destination(lon,lat,(bearing+270)%360,probe):null;
+    const r1=hR===null?destination(lon,lat,(bearing+90)%360,probe):null;
+    const leftNear=hL===null?terrainElev(l1[0],l1[1]):hL;
+    const rightNear=hR===null?terrainElev(r1[0],r1[1]):hR;
+    const l2=destination(lon,lat,(bearing+270)%360,probe*2.2);
+    const r2=destination(lon,lat,(bearing+90)%360,probe*2.2);
+    const leftFar=terrainElev(l2[0],l2[1]);
+    const rightFar=terrainElev(r2[0],r2[1]);
+
+    const rise=(h,dist)=>h===null?0:(h-ground)/dist;
+    const near=Math.max(0,Math.min(rise(leftNear,probe),rise(rightNear,probe)));
+    const far=Math.max(0,Math.min(rise(leftFar,probe*2.2),rise(rightFar,probe*2.2)));
+    const confinement=Math.max(near,far*0.85);
+    const boost=clamp(confinement*2.6,0,0.70);
+    return {factor:1+boost,boost,confinement};
   }
 
-  function traceStream(start, flow, totalM, step, phase, kind){
-    const speed = +$('speed').value;
-    const U = speed/3.6;
-    const p = stabilityParams();
-    const exag = getExag();
-    const path = [];
-    const values = [];
-    const segments = [];
-    let pos = [start[0],start[1]];
-    let bearing = flow;
-    let crest = -Infinity;
-    let crestAge = 999999;
-    let airAlt = null;
-    const probe = clamp(step*0.65,55,420);
+  function localFlowAt(lon,lat,fromDeg,speedKmh,probe=180){
+    const flow=(fromDeg+180)%360, p=stabilityParams();
+    const behind=destination(lon,lat,(flow+180)%360,probe);
+    const ahead=destination(lon,lat,flow,probe);
+    const left=destination(lon,lat,(flow+270)%360,probe);
+    const right=destination(lon,lat,(flow+90)%360,probe);
+    const h0=terrainElev(lon,lat), hb=terrainElev(behind[0],behind[1]), ha=terrainElev(ahead[0],ahead[1]);
+    const hL=terrainElev(left[0],left[1]), hR=terrainElev(right[0],right[1]);
+    if([h0,hb,ha].some(v=>v===null)) return null;
+    const vent=venturiAt(lon,lat,flow,h0,probe,hL,hR);
+    const localSpeedKmh=speedKmh*vent.factor;
+    const U=localSpeedKmh/3.6;
+    const slope=(ha-hb)/(2*probe);
+    const w=clamp(U*slope*1.55*p.lift,-5.5,5.5);
+    return {elev:h0,w,slope,localSpeedKmh,venturiBoost:vent.boost};
+  }
 
-    for(let traveled=0; traveled<=totalM; traveled+=step){
-      const ground = terrainElev(pos[0],pos[1]);
-      if(ground===null){
-        pos = destination(pos[0],pos[1],bearing,step);
-        continue;
-      }
+  function finalizeStream(stream){
+    const timeline=[0];
+    let totalTime=0;
+    for(let i=1;i<stream.path.length;i++){
+      const dist=distanceM(stream.path[i-1][0],stream.path[i-1][1],stream.path[i][0],stream.path[i][1]);
+      const a=stream.values[i-1]||{}, b=stream.values[i]||{};
+      const speedKmh=((a.localSpeedKmh||+$('speed').value)+(b.localSpeedKmh||+$('speed').value))/2;
+      totalTime+=dist/Math.max(speedKmh/3.6,0.8);
+      timeline.push(totalTime);
+    }
+    stream.timeline=timeline;
+    stream.totalTime=Math.max(totalTime,1);
+    stream.lengthM=pathLength(stream.path);
+    return stream;
+  }
 
-      const ahead = destination(pos[0],pos[1],bearing,probe);
-      const left = destination(pos[0],pos[1],(bearing+270)%360,probe);
-      const right = destination(pos[0],pos[1],(bearing+90)%360,probe);
-      const hA = terrainElev(ahead[0],ahead[1]);
-      const hL = terrainElev(left[0],left[1]);
-      const hR = terrainElev(right[0],right[1]);
-      const alongSlope = hA===null ? 0 : (hA-ground)/probe;
-      const crossSlope = hL===null || hR===null ? 0 : (hR-hL)/(2*probe);
-      const climb = clamp(U*alongSlope*1.55*p.lift,-5.5,5.5);
+  function traceStream(start,flow,totalM,step,phase,kind){
+    const baseSpeed=+$('speed').value, p=stabilityParams(), exag=getExag();
+    const path=[], values=[], segments=[];
+    let pos=[start[0],start[1]], bearing=flow, crest=-Infinity, crestAge=999999, airAlt=null;
+    const probe=clamp(step*0.65,55,420);
 
-      if(ground>crest){ crest=ground; crestAge=0; }
-      else crestAge += step;
+    for(let traveled=0;traveled<=totalM;traveled+=step){
+      const ground=terrainElev(pos[0],pos[1]);
+      if(ground===null){ pos=destination(pos[0],pos[1],bearing,step); continue; }
 
-      const drop = Math.max(0,crest-ground);
-      const wakeRaw = drop/650*Math.exp(-crestAge/(5200*p.mix));
-      const wake = clamp(wakeRaw*p.wake*(speed/25),0,1.4);
-      const w = clamp(climb-wake*1.15,-6,6);
-      const minAgl = kind==='selected' ? 85+speed*1.6 : 125+speed*2.0;
+      const ahead=destination(pos[0],pos[1],bearing,probe);
+      const left=destination(pos[0],pos[1],(bearing+270)%360,probe);
+      const right=destination(pos[0],pos[1],(bearing+90)%360,probe);
+      const hA=terrainElev(ahead[0],ahead[1]), hL=terrainElev(left[0],left[1]), hR=terrainElev(right[0],right[1]);
+      const alongSlope=hA===null?0:(hA-ground)/probe;
+      const crossSlope=hL===null||hR===null?0:(hR-hL)/(2*probe);
+      const vent=venturiAt(pos[0],pos[1],bearing,ground,probe,hL,hR);
+      const rawLocalSpeed=baseSpeed*vent.factor;
+      const localU=rawLocalSpeed/3.6;
+      const climb=clamp(localU*alongSlope*1.55*p.lift,-5.5,5.5);
 
-      if(airAlt===null) airAlt = ground+minAgl;
-      const dt = step/Math.max(U,2.2);
-      airAlt += w*dt*0.34;
-      airAlt += (ground+minAgl-airAlt)*(kind==='local'?0.28:0.22);
-      airAlt = Math.max(airAlt,ground+70);
+      if(ground>crest){ crest=ground; crestAge=0; } else crestAge+=step;
+      const drop=Math.max(0,crest-ground);
+      const wakeRaw=drop/650*Math.exp(-crestAge/(5200*p.mix));
+      const wake=clamp(wakeRaw*p.wake*(rawLocalSpeed/25),0,1.4);
+      const localSpeedKmh=rawLocalSpeed*clamp(1-0.08*Math.min(wake,1),0.90,1);
+      const w=clamp(climb-wake*1.15,-6,6);
+      const minAgl=kind==='selected'?85+baseSpeed*1.6:125+baseSpeed*2.0;
 
-      const point = [pos[0],pos[1],ground*exag+(airAlt-ground)];
+      if(airAlt===null) airAlt=ground+minAgl;
+      const dt=step/Math.max(localSpeedKmh/3.6,2.2);
+      airAlt+=w*dt*0.34;
+      airAlt+=(ground+minAgl-airAlt)*(kind==='local'?0.28:0.22);
+      airAlt=Math.max(airAlt,ground+70);
+
+      const point=[pos[0],pos[1],ground*exag+(airAlt-ground)];
       path.push(point);
-      values.push({w,wake,ground});
-      if(path.length>1){
-        segments.push({a:path[path.length-2],b:point,color:colorFor(w,wake),w,wake,kind});
-      }
+      values.push({w,wake,ground,localSpeedKmh,venturiBoost:vent.boost});
+      if(path.length>1) segments.push({a:path[path.length-2],b:point,color:colorFor(w,wake),w,wake,kind,localSpeedKmh,venturiBoost:vent.boost});
 
-      const turnLimit = kind==='local' ? 5.0 : 4.0;
-      const turn = clamp(-crossSlope*140*p.steer,-turnLimit,turnLimit);
-      bearing = (bearing+turn+360)%360;
-      pos = destination(pos[0],pos[1],bearing,step);
+      const turnLimit=kind==='local'?5.0:4.0;
+      const turn=clamp(-crossSlope*140*p.steer,-turnLimit,turnLimit);
+      bearing=(bearing+turn+360)%360;
+      pos=destination(pos[0],pos[1],bearing,step);
     }
 
-    return {path,values,segments,phase,kind,lengthM:pathLength(path)};
+    return finalizeStream({path,values,segments,phase,kind});
   }
 
   function localDetailConfig(){
-    const z = map.getZoom();
+    const z=map.getZoom();
     if(z<11) return {density:0,step:0,crossSpan:0,alongSpan:0};
-
-    let density, step;
-    if(z<12){ density=19; step=620; }
-    else if(z<13){ density=31; step=360; }
-    else if(z<14){ density=43; step=210; }
-    else if(z<15){ density=55; step=125; }
-    else if(z<16){ density=67; step=75; }
-    else { density=79; step=45; }
-
-    const b = map.getBounds();
-    const c = map.getCenter();
-    const width = distanceM(b.getWest(),c.lat,b.getEast(),c.lat);
-    const height = distanceM(c.lng,b.getSouth(),c.lng,b.getNorth());
-    const viewSpan = clamp(Math.max(width,height),900,26000);
-    return {
-      density,
-      step,
-      crossSpan:clamp(viewSpan*0.95,900,24000),
-      alongSpan:clamp(viewSpan*1.35,2200,30000)
-    };
+    let density,step;
+    if(z<12){density=19;step=620;} else if(z<13){density=31;step=360;} else if(z<14){density=43;step=210;}
+    else if(z<15){density=55;step=125;} else if(z<16){density=67;step=75;} else {density=79;step=45;}
+    const b=map.getBounds(), c=map.getCenter();
+    const width=distanceM(b.getWest(),c.lat,b.getEast(),c.lat), height=distanceM(c.lng,b.getSouth(),c.lng,b.getNorth());
+    const viewSpan=clamp(Math.max(width,height),900,26000);
+    return {density,step,crossSpan:clamp(viewSpan*0.95,900,24000),alongSpan:clamp(viewSpan*1.35,2200,30000)};
   }
 
   function updateLocalDetailLabel(cfg){
-    const el = $('localDensityLabel');
+    const el=$('localDensityLabel');
     if(!el) return;
-    if(!cfg || cfg.density===0){
-      el.textContent = 'se densifica al ampliar';
-      return;
-    }
-    const spacing = Math.max(1,Math.round(cfg.crossSpan/Math.max(1,cfg.density-1)));
-    el.textContent = `${cfg.density} trazas locales · separación ~${spacing} m`;
+    if(!cfg||cfg.density===0){el.textContent='se densifica al ampliar';return;}
+    const spacing=Math.max(1,Math.round(cfg.crossSpan/Math.max(1,cfg.density-1)));
+    el.textContent=`${cfg.density} trazas locales · separación ~${spacing} m`;
   }
 
   function buildLocalDetail(){
     if(!map.isStyleLoaded()) return;
-    const cfg = localDetailConfig();
+    const cfg=localDetailConfig();
     updateLocalDetailLabel(cfg);
-    windModel.localStreams = [];
-    windModel.localSegments = [];
-
-    if(cfg.density===0){
-      renderDeck(performance.now());
-      return;
-    }
-
-    const from = +$('direction').value;
-    const flow = (from+180)%360;
-    const center = map.getCenter();
-    const crossStep = cfg.crossSpan/Math.max(1,cfg.density-1);
-
+    windModel.localStreams=[]; windModel.localSegments=[];
+    if(cfg.density===0){renderDeck(performance.now());return;}
+    const flow=(+$('direction').value+180)%360, center=map.getCenter(), crossStep=cfg.crossSpan/Math.max(1,cfg.density-1);
     for(let i=0;i<cfg.density;i++){
-      const cross = -cfg.crossSpan/2 + i*crossStep;
-      let pos = destination(center.lng,center.lat,(flow+270)%360,cross);
-      pos = destination(pos[0],pos[1],(flow+180)%360,cfg.alongSpan/2);
-      const s = traceStream(pos,flow,cfg.alongSpan,cfg.step,i/Math.max(1,cfg.density),'local');
-      if(s.path.length>3){
-        windModel.localStreams.push(s);
-        windModel.localSegments.push(...s.segments);
-      }
+      const cross=-cfg.crossSpan/2+i*crossStep;
+      let pos=destination(center.lng,center.lat,(flow+270)%360,cross);
+      pos=destination(pos[0],pos[1],(flow+180)%360,cfg.alongSpan/2);
+      const s=traceStream(pos,flow,cfg.alongSpan,cfg.step,i/Math.max(1,cfg.density),'local');
+      if(s.path.length>3){windModel.localStreams.push(s);windModel.localSegments.push(...s.segments);}
     }
-
     if(selectedPoint) buildSelectedStream(false);
     renderDeck(performance.now());
-    setStatus(`Detalle local activo · ${cfg.density} trazas 3D en zoom ${map.getZoom().toFixed(1)}`,'ok');
+    setStatus(`Detalle local activo · ${cfg.density} trazas 3D · aceleración Venturi activa`,'ok');
   }
 
   function buildSelectedStream(showStatus=true){
-    windModel.selectedStream = null;
-    windModel.selectedSegments = [];
+    windModel.selectedStream=null; windModel.selectedSegments=[];
     if(!selectedPoint) return;
+    const ground0=terrainElev(selectedPoint.lon,selectedPoint.lat);
+    if(ground0===null){if(showStatus)setStatus('El MDT aún no está cargado en ese punto. Espera un momento y vuelve a hacer clic.','loading');return;}
 
-    const ground0 = terrainElev(selectedPoint.lon,selectedPoint.lat);
-    if(ground0===null){
-      if(showStatus) setStatus('El MDT aún no está cargado en ese punto. Espera un momento y vuelve a hacer clic.','loading');
-      return;
-    }
+    const from=+$('direction').value, baseSpeed=+$('speed').value, flow=(from+180)%360, exag=getExag(), cfg=localDetailConfig();
+    const step=clamp(cfg.step||220,45,260), halfSpan=clamp((cfg.alongSpan||8000)*0.55,3000,9000), minAgl=80+baseSpeed*1.5;
+    const p=stabilityParams(), backwards=[], backValues=[];
+    let pos=[selectedPoint.lon,selectedPoint.lat], bearing=flow, airAlt=ground0+minAgl;
+    const probe=clamp(step*0.65,45,220);
 
-    const from = +$('direction').value;
-    const speed = +$('speed').value;
-    const flow = (from+180)%360;
-    const exag = getExag();
-    const cfg = localDetailConfig();
-    const step = clamp(cfg.step || 220,45,260);
-    const halfSpan = clamp((cfg.alongSpan || 8000)*0.55,3000,9000);
-    const minAgl = 80+speed*1.5;
-    const p = stabilityParams();
-    const U = speed/3.6;
-
-    const backwards = [];
-    const backValues = [];
-    let pos = [selectedPoint.lon,selectedPoint.lat];
-    let bearing = flow;
-    let airAlt = ground0+minAgl;
-    const probe = clamp(step*0.65,45,220);
-
-    for(let traveled=0; traveled<=halfSpan; traveled+=step){
-      const ground = terrainElev(pos[0],pos[1]);
-      if(ground===null) break;
-      const ahead = destination(pos[0],pos[1],bearing,probe);
-      const left = destination(pos[0],pos[1],(bearing+270)%360,probe);
-      const right = destination(pos[0],pos[1],(bearing+90)%360,probe);
-      const hA = terrainElev(ahead[0],ahead[1]);
-      const hL = terrainElev(left[0],left[1]);
-      const hR = terrainElev(right[0],right[1]);
-      const alongSlope = hA===null ? 0 : (hA-ground)/probe;
-      const crossSlope = hL===null || hR===null ? 0 : (hR-hL)/(2*probe);
-      const w = clamp(U*alongSlope*1.55*p.lift,-5.5,5.5);
-      const dt = step/Math.max(U,2.2);
-      airAlt -= w*dt*0.28;
-      airAlt += (ground+minAgl-airAlt)*0.34;
-      airAlt = Math.max(airAlt,ground+60);
+    for(let traveled=0;traveled<=halfSpan;traveled+=step){
+      const ground=terrainElev(pos[0],pos[1]); if(ground===null) break;
+      const ahead=destination(pos[0],pos[1],bearing,probe), left=destination(pos[0],pos[1],(bearing+270)%360,probe), right=destination(pos[0],pos[1],(bearing+90)%360,probe);
+      const hA=terrainElev(ahead[0],ahead[1]), hL=terrainElev(left[0],left[1]), hR=terrainElev(right[0],right[1]);
+      const alongSlope=hA===null?0:(hA-ground)/probe, crossSlope=hL===null||hR===null?0:(hR-hL)/(2*probe);
+      const vent=venturiAt(pos[0],pos[1],bearing,ground,probe,hL,hR), localSpeedKmh=baseSpeed*vent.factor, U=localSpeedKmh/3.6;
+      const w=clamp(U*alongSlope*1.55*p.lift,-5.5,5.5), dt=step/Math.max(U,2.2);
+      airAlt-=w*dt*0.28; airAlt+=(ground+minAgl-airAlt)*0.34; airAlt=Math.max(airAlt,ground+60);
       backwards.push([pos[0],pos[1],ground*exag+(airAlt-ground)]);
-      backValues.push({w,wake:0,ground});
-      const turn = clamp(-crossSlope*140*p.steer,-5,5);
-      bearing = (bearing-turn+360)%360;
-      pos = destination(pos[0],pos[1],(bearing+180)%360,step);
+      backValues.push({w,wake:0,ground,localSpeedKmh,venturiBoost:vent.boost});
+      const turn=clamp(-crossSlope*140*p.steer,-5,5);
+      bearing=(bearing-turn+360)%360;
+      pos=destination(pos[0],pos[1],(bearing+180)%360,step);
     }
 
-    backwards.reverse();
-    backValues.reverse();
-
-    const forward = traceStream([selectedPoint.lon,selectedPoint.lat],flow,halfSpan,step,0,'selected');
-    let path = backwards;
-    let values = backValues;
-    if(forward.path.length){
-      path = path.concat(forward.path.slice(1));
-      values = values.concat(forward.values.slice(1));
-    }
-
-    const segments = [];
+    backwards.reverse(); backValues.reverse();
+    const forward=traceStream([selectedPoint.lon,selectedPoint.lat],flow,halfSpan,step,0,'selected');
+    let path=backwards, values=backValues;
+    if(forward.path.length){path=path.concat(forward.path.slice(1));values=values.concat(forward.values.slice(1));}
+    const segments=[];
     for(let i=1;i<path.length;i++){
-      const v = values[i] || {w:0,wake:0};
-      segments.push({a:path[i-1],b:path[i],color:colorFor(v.w,v.wake),w:v.w,wake:v.wake,kind:'selected'});
+      const v=values[i]||{w:0,wake:0,localSpeedKmh:baseSpeed,venturiBoost:0};
+      segments.push({a:path[i-1],b:path[i],color:colorFor(v.w,v.wake),w:v.w,wake:v.wake,kind:'selected',localSpeedKmh:v.localSpeedKmh,venturiBoost:v.venturiBoost});
     }
+    windModel.selectedStream=finalizeStream({path,values,phase:0,kind:'selected',segments});
+    windModel.selectedSegments=segments;
+    pointerInfo={lon:selectedPoint.lon,lat:selectedPoint.lat,z:ground0*exag+24};
 
-    windModel.selectedStream = {path,values,phase:0,kind:'selected',lengthM:pathLength(path)};
-    windModel.selectedSegments = segments;
-    pointerInfo = {lon:selectedPoint.lon,lat:selectedPoint.lat,z:ground0*exag+24};
-
-    const local = localFlowAt(selectedPoint.lon,selectedPoint.lat,from,speed,Math.max(70,probe));
+    const local=localFlowAt(selectedPoint.lon,selectedPoint.lat,from,baseSpeed,Math.max(70,probe));
     if(showStatus){
-      const txt = local
-        ? `Línea puntual creada · ${Math.round(local.elev)} m · w ${(local.w>=0?'+':'')+local.w.toFixed(1)} m/s`
-        : 'Línea puntual creada sobre el terreno';
+      const txt=local?`Línea puntual · ${Math.round(local.elev)} m · ${local.localSpeedKmh.toFixed(0)} km/h local · w ${(local.w>=0?'+':'')+local.w.toFixed(1)} m/s`:'Línea puntual creada sobre el terreno';
       setStatus(txt,'ok');
     }
   }
 
   async function buildWindModel(force=false){
     if(modelBusy) return;
-    modelBusy = true;
-
-    const from = +$('direction').value;
-    const speed = +$('speed').value;
-    const density = +$('density').value;
-    const exag = getExag();
-    const stab = $('stability').value;
-    const key = [from,speed,density,exag,stab].join('|');
-
-    if(!force && key===lastModelKey){
-      modelBusy = false;
-      return;
-    }
-    lastModelKey = key;
-    setStatus('Calculando campo 3D sobre el MDT…');
+    modelBusy=true;
+    const from=+$('direction').value, speed=+$('speed').value, density=+$('density').value, exag=getExag(), stab=$('stability').value;
+    const key=[from,speed,density,exag,stab].join('|');
+    if(!force&&key===lastModelKey){modelBusy=false;return;}
+    lastModelKey=key;
+    setStatus('Calculando campo 3D y aceleraciones locales…');
     await new Promise(r=>setTimeout(r,25));
 
-    const flow = (from+180)%360;
-    const streams = [];
-    const segments = [];
-    const crossSpan = 34000;
-    const alongSpan = 54000;
-    const step = 900;
-    const crossStep = crossSpan/Math.max(1,density-1);
-    let validCount = 0;
-
+    const flow=(from+180)%360, streams=[], segments=[], crossSpan=34000, alongSpan=54000, step=900, crossStep=crossSpan/Math.max(1,density-1);
+    let validCount=0;
     for(let i=0;i<density;i++){
-      const cross = -crossSpan/2+i*crossStep;
-      let pos = destination(SITE.lon,SITE.lat,(flow+270)%360,cross);
-      pos = destination(pos[0],pos[1],(flow+180)%360,alongSpan/2);
-      const s = traceStream(pos,flow,alongSpan,step,i/Math.max(1,density),'global');
-      if(s.path.length>4){
-        validCount += s.path.length;
-        streams.push(s);
-        segments.push(...s.segments);
-      }
+      const cross=-crossSpan/2+i*crossStep;
+      let pos=destination(SITE.lon,SITE.lat,(flow+270)%360,cross);
+      pos=destination(pos[0],pos[1],(flow+180)%360,alongSpan/2);
+      const s=traceStream(pos,flow,alongSpan,step,i/Math.max(1,density),'global');
+      if(s.path.length>4){validCount+=s.path.length;streams.push(s);segments.push(...s.segments);}
     }
-
-    windModel.globalStreams = streams;
-    windModel.globalSegments = segments;
+    windModel.globalStreams=streams; windModel.globalSegments=segments;
     buildLocalDetail();
     if(selectedPoint) buildSelectedStream(false);
 
-    const site = localFlowAt(SITE.lon,SITE.lat,from,speed,180);
+    const site=localFlowAt(SITE.lon,SITE.lat,from,speed,180);
     if(site){
-      $('siteElev').textContent = Math.round(site.elev)+' m';
-      $('siteW').textContent = (site.w>=0?'+':'')+site.w.toFixed(1)+' m/s';
-      $('siteClass').textContent = classFor(site.w,0);
+      $('siteElev').textContent=Math.round(site.elev)+' m';
+      $('siteW').textContent=(site.w>=0?'+':'')+site.w.toFixed(1)+' m/s';
+      $('siteClass').textContent=classFor(site.w,0);
+      const localEl=$('siteLocalSpeed'); if(localEl) localEl.textContent=site.localSpeedKmh.toFixed(0)+' km/h';
+      const ventEl=$('siteVenturi'); if(ventEl) ventEl.textContent=site.venturiBoost>0.03?'+'+Math.round(site.venturiBoost*100)+'% Venturi':'sin aceleración';
     }
-
     renderDeck(performance.now());
-    setStatus(validCount>100 ? 'MDT cargado · partículas 3D actualizadas' : 'Esperando más teselas del MDT…', validCount>100?'ok':'loading');
-    modelBusy = false;
+    setStatus(validCount>100?'MDT cargado · partículas 3D con velocidad local actualizadas':'Esperando más teselas del MDT…',validCount>100?'ok':'loading');
+    modelBusy=false;
   }
 
-  function sampleStream(stream,norm){
-    if(!stream || !stream.path || stream.path.length<2) return null;
-    const n = ((norm%1)+1)%1;
-    const f = n*(stream.path.length-1);
-    const i = Math.floor(f);
-    const q = f-i;
-    const a = stream.path[i];
-    const b = stream.path[Math.min(i+1,stream.path.length-1)];
-    const val = stream.values[Math.min(i,stream.values.length-1)] || {w:0,wake:0};
-    return {
-      position:[a[0]+(b[0]-a[0])*q,a[1]+(b[1]-a[1])*q,a[2]+(b[2]-a[2])*q+12],
-      value:val
-    };
+  function sampleStreamByTime(stream,timeSec){
+    if(!stream||!stream.path||stream.path.length<2||!stream.timeline) return null;
+    const total=stream.totalTime||1;
+    let t=((timeSec%total)+total)%total;
+    const timeline=stream.timeline;
+    let lo=0,hi=timeline.length-1;
+    while(lo<hi-1){const mid=(lo+hi)>>1;if(timeline[mid]<=t)lo=mid;else hi=mid;}
+    const i=lo, t0=timeline[i], t1=timeline[Math.min(i+1,timeline.length-1)], q=t1>t0?(t-t0)/(t1-t0):0;
+    const a=stream.path[i], b=stream.path[Math.min(i+1,stream.path.length-1)];
+    const val=stream.values[Math.min(i,stream.values.length-1)]||{w:0,wake:0,localSpeedKmh:+$('speed').value,venturiBoost:0};
+    return {position:[a[0]+(b[0]-a[0])*q,a[1]+(b[1]-a[1])*q,a[2]+(b[2]-a[2])*q+12],value:val};
   }
 
   function particleSpacing(kind,zoom){
     if(kind==='selected') return 420;
-    if(kind==='global') return zoom<11 ? 3600 : 2800;
-    if(zoom<12) return 1300;
-    if(zoom<13) return 900;
-    if(zoom<14) return 620;
-    if(zoom<15) return 420;
-    if(zoom<16) return 290;
-    return 190;
+    if(kind==='global') return zoom<11?3600:2800;
+    if(zoom<12)return 1300;if(zoom<13)return 900;if(zoom<14)return 620;if(zoom<15)return 420;if(zoom<16)return 290;return 190;
   }
 
   function particleVisualData(t){
     if(!$('particles').checked) return {trails:[],heads:[]};
-    const speed = +$('speed').value;
-    const U = speed/3.6;
-    const zoom = map.getZoom();
-    const visualScale = 70;
-    const traveled = t*0.001*U*visualScale;
-    const trails = [];
-    const heads = [];
-    const streams = [];
-
+    const baseSpeed=+$('speed').value, zoom=map.getZoom(), visualTime=t*0.001*70, trails=[], heads=[], streams=[];
     windModel.globalStreams.forEach(s=>streams.push(s));
     windModel.localStreams.forEach(s=>streams.push(s));
     if(windModel.selectedStream) streams.push(windModel.selectedStream);
 
     streams.forEach((s,streamIndex)=>{
-      const length = Math.max(s.lengthM || pathLength(s.path),1);
-      const spacing = particleSpacing(s.kind || 'global',zoom);
-      const count = clamp(Math.round(length/spacing),2,s.kind==='selected'?24:30);
-      const trailM = s.kind==='selected' ? clamp(speed*18,170,650) : clamp(speed*13,120,520);
-      const seed = ((streamIndex*0.61803398875)+(s.phase||0))%1;
+      const spacing=particleSpacing(s.kind||'global',zoom);
+      const count=clamp(Math.round((s.lengthM||1)/spacing),2,s.kind==='selected'?24:30);
+      const seed=((streamIndex*0.61803398875)+(s.phase||0))%1;
+      const totalTime=s.totalTime||1;
+      const trailSeconds=s.kind==='selected'?clamp(baseSpeed*2.3,24,95):clamp(baseSpeed*1.8,18,75);
 
       for(let k=0;k<count;k++){
-        const offsetM = ((k/count+seed)%1)*length;
-        const headDist = (traveled+offsetM)%length;
-        const headNorm = headDist/length;
-        const samples = [];
+        const offset=((k/count+seed)%1)*totalTime;
+        const headTime=visualTime+offset;
+        const samples=[];
         for(let j=3;j>=0;j--){
-          const d = headDist-trailM*(j/3);
-          const smp = sampleStream(s,d/length);
+          const smp=sampleStreamByTime(s,headTime-trailSeconds*(j/3));
           if(smp) samples.push(smp.position);
         }
-        const head = sampleStream(s,headNorm);
-        if(!head || samples.length<2) continue;
-        const c = colorFor(head.value.w,head.value.wake);
-        trails.push({path:samples,color:c,kind:s.kind||'global'});
-        heads.push({position:head.position,color:c,kind:s.kind||'global'});
+        const head=sampleStreamByTime(s,headTime);
+        if(!head||samples.length<2) continue;
+        const c=colorFor(head.value.w,head.value.wake);
+        trails.push({path:samples,color:c,kind:s.kind||'global',speed:head.value.localSpeedKmh||baseSpeed});
+        heads.push({position:head.position,color:c,kind:s.kind||'global',speed:head.value.localSpeedKmh||baseSpeed});
       }
     });
-
     return {trails,heads};
   }
 
   function renderDeck(t){
     if(!overlay) return;
-    const layers = [];
-
+    const layers=[];
     if($('windLines').checked){
-      layers.push(new PathLayer({
-        id:'wind-global-guides', data:windModel.globalSegments,
-        getPath:d=>[d.a,d.b], getColor:d=>guideColor(d.color,55),
-        getWidth:1.0, widthUnits:'pixels', jointRounded:true, capRounded:true,
-        pickable:false, parameters:{depthTest:true}
-      }));
-
-      if(windModel.localSegments.length){
-        layers.push(new PathLayer({
-          id:'wind-local-guides', data:windModel.localSegments,
-          getPath:d=>[d.a,d.b], getColor:d=>guideColor(d.color,45),
-          getWidth:0.9, widthUnits:'pixels', jointRounded:true, capRounded:true,
-          pickable:false, parameters:{depthTest:true}
-        }));
-      }
+      layers.push(new PathLayer({id:'wind-global-guides',data:windModel.globalSegments,getPath:d=>[d.a,d.b],getColor:d=>guideColor(d.color,55),getWidth:1,widthUnits:'pixels',jointRounded:true,capRounded:true,pickable:false,parameters:{depthTest:true}}));
+      if(windModel.localSegments.length) layers.push(new PathLayer({id:'wind-local-guides',data:windModel.localSegments,getPath:d=>[d.a,d.b],getColor:d=>guideColor(d.color,45),getWidth:0.9,widthUnits:'pixels',jointRounded:true,capRounded:true,pickable:false,parameters:{depthTest:true}}));
     }
 
-    const particles = particleVisualData(t);
-    if($('particles').checked && particles.trails.length){
-      layers.push(new PathLayer({
-        id:'wind-particle-trails', data:particles.trails,
-        getPath:d=>d.path,
-        getColor:d=>d.color,
-        getWidth:d=>d.kind==='selected'?3.4:d.kind==='local'?2.2:1.9,
-        widthUnits:'pixels', jointRounded:true, capRounded:true,
-        pickable:false, parameters:{depthTest:true}
-      }));
-      layers.push(new ScatterplotLayer({
-        id:'wind-particle-heads', data:particles.heads,
-        getPosition:d=>d.position,
-        getFillColor:d=>d.color,
-        getRadius:d=>d.kind==='selected'?2.9:2.1,
-        radiusUnits:'pixels', stroked:false, filled:true,
-        pickable:false, parameters:{depthTest:true}
-      }));
+    const particles=particleVisualData(t);
+    if($('particles').checked&&particles.trails.length){
+      layers.push(new PathLayer({id:'wind-particle-trails',data:particles.trails,getPath:d=>d.path,getColor:d=>d.color,getWidth:d=>d.kind==='selected'?3.4:d.kind==='local'?2.2:1.9,widthUnits:'pixels',jointRounded:true,capRounded:true,pickable:false,parameters:{depthTest:true}}));
+      layers.push(new ScatterplotLayer({id:'wind-particle-heads',data:particles.heads,getPosition:d=>d.position,getFillColor:d=>d.color,getRadius:d=>d.kind==='selected'?2.9:2.1,radiusUnits:'pixels',stroked:false,filled:true,pickable:false,parameters:{depthTest:true}}));
     }
 
     if(windModel.selectedSegments.length){
-      layers.push(new PathLayer({
-        id:'selected-halo', data:windModel.selectedSegments,
-        getPath:d=>[d.a,d.b], getColor:[255,255,255,205],
-        getWidth:6.2, widthUnits:'pixels', jointRounded:true, capRounded:true,
-        pickable:false, parameters:{depthTest:true}
-      }));
-      layers.push(new PathLayer({
-        id:'selected-flow', data:windModel.selectedSegments,
-        getPath:d=>[d.a,d.b], getColor:d=>d.color,
-        getWidth:3.2, widthUnits:'pixels', jointRounded:true, capRounded:true,
-        pickable:false, parameters:{depthTest:true}
-      }));
+      layers.push(new PathLayer({id:'selected-halo',data:windModel.selectedSegments,getPath:d=>[d.a,d.b],getColor:[255,255,255,205],getWidth:6.2,widthUnits:'pixels',jointRounded:true,capRounded:true,pickable:false,parameters:{depthTest:true}}));
+      layers.push(new PathLayer({id:'selected-flow',data:windModel.selectedSegments,getPath:d=>[d.a,d.b],getColor:d=>d.color,getWidth:3.2,widthUnits:'pixels',jointRounded:true,capRounded:true,pickable:false,parameters:{depthTest:true}}));
     }
 
-    if(pointerInfo){
-      layers.push(new ScatterplotLayer({
-        id:'probe', data:[pointerInfo],
-        getPosition:d=>[d.lon,d.lat,d.z],
-        getFillColor:[255,255,255,235], getLineColor:[10,10,10,220],
-        stroked:true, filled:true, getRadius:6.5, radiusUnits:'pixels',
-        lineWidthMinPixels:1.3, pickable:false
-      }));
-    }
-
+    if(pointerInfo) layers.push(new ScatterplotLayer({id:'probe',data:[pointerInfo],getPosition:d=>[d.lon,d.lat,d.z],getFillColor:[255,255,255,235],getLineColor:[10,10,10,220],stroked:true,filled:true,getRadius:6.5,radiusUnits:'pixels',lineWidthMinPixels:1.3,pickable:false}));
     overlay.setProps({layers});
   }
 
-  function animate(t){
-    renderDeck(t);
-    animId = requestAnimationFrame(animate);
-  }
+  function animate(t){renderDeck(t);animId=requestAnimationFrame(animate);}
 
   function addAreaBox(){
-    const nw=[areaSW[0],areaNE[1]], se=[areaNE[0],areaSW[1]];
+    const nw=[areaSW[0],areaNE[1]],se=[areaNE[0],areaSW[1]];
     map.addSource('study-area',{type:'geojson',data:{type:'FeatureCollection',features:[{type:'Feature',properties:{},geometry:{type:'LineString',coordinates:[areaSW,se,areaNE,nw,areaSW]}}]}});
     map.addLayer({id:'study-area',type:'line',source:'study-area',paint:{'line-color':'rgba(255,255,255,.55)','line-width':1.2,'line-dasharray':[3,3]}});
   }
 
   function updateUI(){
-    const d = +$('direction').value;
-    const s = +$('speed').value;
-    const flow = (d+180)%360;
-    const label = compassLabel(d);
-    $('dirDeg').textContent = d+'°';
-    $('dirLabel').textContent = label;
-    $('chipDir').textContent = label;
-    $('chipSpeed').textContent = s;
-    $('speedLabel').textContent = s;
-    $('flowDir').textContent = flow+'°';
-    $('densityLabel').textContent = $('density').value;
-    $('exagLabel').textContent = (+$('exag').value).toFixed(2)+'×';
-    $('windArrow').style.transform = `rotate(${flow}deg)`;
+    const d=+$('direction').value,s=+$('speed').value,flow=(d+180)%360,label=compassLabel(d);
+    $('dirDeg').textContent=d+'°';$('dirLabel').textContent=label;$('chipDir').textContent=label;$('chipSpeed').textContent=s;$('speedLabel').textContent=s;$('flowDir').textContent=flow+'°';$('densityLabel').textContent=$('density').value;$('exagLabel').textContent=(+$('exag').value).toFixed(2)+'×';
+    $('windArrow').style.transform=`rotate(${flow}deg)`;
     document.querySelectorAll('.compass button').forEach(b=>b.classList.toggle('active',+b.dataset.dir===d));
   }
 
-  function scheduleRecalc(delay=160){
-    updateUI();
-    clearTimeout(recalcTimer);
-    recalcTimer = setTimeout(()=>buildWindModel(true),delay);
-  }
+  function scheduleRecalc(delay=160){updateUI();clearTimeout(recalcTimer);recalcTimer=setTimeout(()=>buildWindModel(true),delay);}
+  function scheduleLocalDetail(delay=220){clearTimeout(localTimer);localTimer=setTimeout(()=>{buildLocalDetail();if(selectedPoint)buildSelectedStream(false);renderDeck(performance.now());},delay);}
 
-  function scheduleLocalDetail(delay=220){
-    clearTimeout(localTimer);
-    localTimer = setTimeout(()=>{
-      buildLocalDetail();
-      if(selectedPoint) buildSelectedStream(false);
-      renderDeck(performance.now());
-    },delay);
-  }
-
-  document.querySelectorAll('.compass button').forEach(b=>b.addEventListener('click',()=>{
-    $('direction').value = b.dataset.dir;
-    scheduleRecalc(60);
-  }));
+  document.querySelectorAll('.compass button').forEach(b=>b.addEventListener('click',()=>{$('direction').value=b.dataset.dir;scheduleRecalc(60);}));
   $('direction').addEventListener('input',()=>scheduleRecalc(180));
-  $('speed').addEventListener('input',()=>{ updateUI(); scheduleRecalc(180); });
+  $('speed').addEventListener('input',()=>{updateUI();scheduleRecalc(180);});
   $('density').addEventListener('input',()=>scheduleRecalc(220));
   $('stability').addEventListener('change',()=>scheduleRecalc(80));
-  $('exag').addEventListener('input',()=>{
-    updateUI();
-    map.setTerrain({source:'terrain',exaggeration:getExag()});
-    scheduleRecalc(220);
-  });
+  $('exag').addEventListener('input',()=>{updateUI();map.setTerrain({source:'terrain',exaggeration:getExag()});scheduleRecalc(220);});
   $('particles').addEventListener('change',()=>renderDeck(performance.now()));
   $('windLines').addEventListener('change',()=>renderDeck(performance.now()));
   $('hillshade').addEventListener('change',()=>map.setLayoutProperty('hillshade','visibility',$('hillshade').checked?'visible':'none'));
@@ -621,63 +434,39 @@
   $('recalc').addEventListener('click',()=>buildWindModel(true));
   $('resetView').addEventListener('click',()=>map.fitBounds([areaSW,areaNE],{padding:{top:90,bottom:75,left:400,right:90},pitch:64,bearing:28,duration:1200}));
 
-  const tip = $('tip');
+  const tip=$('tip');
   map.on('mousemove',e=>{
-    if(!map.isStyleLoaded()) return;
-    const elev = terrainElev(e.lngLat.lng,e.lngLat.lat);
-    if(elev===null) return;
-    const probe = clamp((localDetailConfig().step || 180),70,220);
-    const local = localFlowAt(e.lngLat.lng,e.lngLat.lat,+$('direction').value,+$('speed').value,probe);
-    tip.style.display='block';
-    tip.style.left=(e.originalEvent.clientX+12)+'px';
-    tip.style.top=(e.originalEvent.clientY+12)+'px';
-    tip.innerHTML=`<b>${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}</b><br>Terreno: ${Math.round(elev)} m${local?`<br>w orográfica: ${(local.w>=0?'+':'')+local.w.toFixed(1)} m/s`:''}<br><span style="opacity:.75">clic: línea puntual</span>`;
+    if(!map.isStyleLoaded())return;
+    const elev=terrainElev(e.lngLat.lng,e.lngLat.lat);if(elev===null)return;
+    const probe=clamp(localDetailConfig().step||180,70,220);
+    const local=localFlowAt(e.lngLat.lng,e.lngLat.lat,+$('direction').value,+$('speed').value,probe);
+    tip.style.display='block';tip.style.left=(e.originalEvent.clientX+12)+'px';tip.style.top=(e.originalEvent.clientY+12)+'px';
+    const speedLine=local?`<br>Vel. local: ${local.localSpeedKmh.toFixed(0)} km/h${local.venturiBoost>0.03?` · Venturi +${Math.round(local.venturiBoost*100)}%`:''}`:'';
+    tip.innerHTML=`<b>${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}</b><br>Terreno: ${Math.round(elev)} m${local?`<br>w orográfica: ${(local.w>=0?'+':'')+local.w.toFixed(1)} m/s`:''}${speedLine}<br><span style="opacity:.75">clic: línea puntual</span>`;
   });
   map.on('mouseleave',()=>tip.style.display='none');
 
   map.on('click',e=>{
-    const z = terrainElev(e.lngLat.lng,e.lngLat.lat);
-    if(z===null){
-      setStatus('Aún no hay elevación cargada en ese punto. Espera a que termine de cargar el MDT.','loading');
-      return;
-    }
-
-    selectedPoint = {lon:e.lngLat.lng,lat:e.lngLat.lat};
-    buildSelectedStream(true);
-    renderDeck(performance.now());
-
-    const probe = clamp((localDetailConfig().step || 180),70,220);
-    const local = localFlowAt(e.lngLat.lng,e.lngLat.lat,+$('direction').value,+$('speed').value,probe);
-    if(clickPopup) clickPopup.remove();
-    const details = local
-      ? `<br>Altitud: <strong>${Math.round(local.elev)} m</strong><br>w estimada: <strong>${(local.w>=0?'+':'')+local.w.toFixed(1)} m/s</strong><br>${classFor(local.w,0)}`
-      : '';
-    clickPopup = new maplibregl.Popup({offset:14,closeButton:true,closeOnClick:false})
-      .setLngLat([e.lngLat.lng,e.lngLat.lat])
-      .setHTML(`<b>Línea puntual de viento</b>${details}<br><small>${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}</small>`)
-      .addTo(map);
+    const z=terrainElev(e.lngLat.lng,e.lngLat.lat);
+    if(z===null){setStatus('Aún no hay elevación cargada en ese punto. Espera a que termine de cargar el MDT.','loading');return;}
+    selectedPoint={lon:e.lngLat.lng,lat:e.lngLat.lat};
+    buildSelectedStream(true);renderDeck(performance.now());
+    const probe=clamp(localDetailConfig().step||180,70,220);
+    const local=localFlowAt(e.lngLat.lng,e.lngLat.lat,+$('direction').value,+$('speed').value,probe);
+    if(clickPopup)clickPopup.remove();
+    const details=local?`<br>Altitud: <strong>${Math.round(local.elev)} m</strong><br>Velocidad local: <strong>${local.localSpeedKmh.toFixed(0)} km/h</strong>${local.venturiBoost>0.03?` <small>(Venturi +${Math.round(local.venturiBoost*100)}%)</small>`:''}<br>w estimada: <strong>${(local.w>=0?'+':'')+local.w.toFixed(1)} m/s</strong><br>${classFor(local.w,0)}`:'';
+    clickPopup=new maplibregl.Popup({offset:14,closeButton:true,closeOnClick:false}).setLngLat([e.lngLat.lng,e.lngLat.lat]).setHTML(`<b>Línea puntual de viento</b>${details}<br><small>${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}</small>`).addTo(map);
   });
 
   map.on('load',()=>{
-    addAreaBox();
-    overlay = new MapboxOverlay({interleaved:true,layers:[]});
-    map.addControl(overlay);
+    addAreaBox();overlay=new MapboxOverlay({interleaved:true,layers:[]});map.addControl(overlay);
     map.fitBounds([areaSW,areaNE],{padding:{top:90,bottom:80,left:390,right:90},pitch:64,bearing:28,duration:0});
-    updateUI();
-    updateLocalDetailLabel(localDetailConfig());
-    setTimeout(()=>buildWindModel(true),1300);
-    cancelAnimationFrame(animId);
-    animId = requestAnimationFrame(animate);
+    updateUI();updateLocalDetailLabel(localDetailConfig());setTimeout(()=>buildWindModel(true),1300);
+    cancelAnimationFrame(animId);animId=requestAnimationFrame(animate);
   });
 
   map.on('moveend',()=>scheduleLocalDetail(260));
   map.on('zoomend',()=>scheduleLocalDetail(180));
-  map.on('idle',()=>{
-    if(windModel.globalStreams.length===0 && !modelBusy) buildWindModel(true);
-  });
-  map.on('error',e=>{
-    console.warn('Map error',e.error||e);
-    const msg = (e.error&&e.error.message||'').toLowerCase();
-    if(msg.includes('terrain') || msg.includes('raster-dem')) setStatus('Error al cargar el MDT; comprueba conexión.','err');
-  });
+  map.on('idle',()=>{if(windModel.globalStreams.length===0&&!modelBusy)buildWindModel(true);});
+  map.on('error',e=>{console.warn('Map error',e.error||e);const msg=(e.error&&e.error.message||'').toLowerCase();if(msg.includes('terrain')||msg.includes('raster-dem'))setStatus('Error al cargar el MDT; comprueba conexión.','err');});
 })();
