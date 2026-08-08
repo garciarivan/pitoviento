@@ -147,9 +147,6 @@
     return {lift:0.96,wake:1.0,mix:1.0,channel:1.0};
   }
 
-  // Busca un eje de valle cercano a la dirección sinóptica. Se comparan cinco
-  // corredores posibles y se favorece el que tiene paredes a ambos lados y
-  // menor bloqueo longitudinal. La desviación final nunca supera ±40°.
   function channelAt(lon,lat,baseFlow,ground,probe){
     const offsets=[-40,-20,0,20,40];
     const sideDist=clamp(probe*2.0,140,600);
@@ -191,7 +188,6 @@
     return {bearing:normBearing(baseFlow+deflection),deflection,strength,score:best.score};
   }
 
-  // Proxy diagnóstico de aceleración por estrechamiento lateral del relieve.
   function venturiAt(lon,lat,bearing,ground,probe,hL=null,hR=null){
     const l1=hL===null?destination(lon,lat,(bearing+270)%360,probe):null;
     const r1=hR===null?destination(lon,lat,(bearing+90)%360,probe):null;
@@ -343,8 +339,6 @@
     setStatus(`Detalle local activo · ${cfg.density} trayectorias · canalización de valles + Venturi`,'ok');
   }
 
-  // El detalle seleccionado nace exactamente en el punto pulsado y sigue el
-  // flujo a sotavento, incluyendo la canalización horizontal local.
   function buildSelectedStream(showStatus=true){
     windModel.selectedStream=null;
     if(!selectedPoint) return;
@@ -363,6 +357,14 @@
         : 'Detalle puntual creado sobre el terreno';
       setStatus(txt,'ok');
     }
+  }
+
+  function clearSelectedDetail(){
+    selectedPoint=null;
+    windModel.selectedStream=null;
+    pointerInfo=null;
+    renderDeck(performance.now());
+    setStatus('Detalle puntual cerrado · campo general activo','ok');
   }
 
   async function buildWindModel(force=false){
@@ -533,32 +535,37 @@
   $('recalc').addEventListener('click',()=>buildWindModel(true));
   $('resetView').addEventListener('click',()=>map.fitBounds([areaSW,areaNE],{padding:viewPadding(),pitch:64,bearing:28,duration:1200}));
 
-  const tip=$('tip');
-  map.on('mousemove',e=>{
-    if(!map.isStyleLoaded())return;
-    const elev=terrainElev(e.lngLat.lng,e.lngLat.lat);if(elev===null)return;
-    const probe=clamp(localDetailConfig().step||180,70,220);
-    const local=localFlowAt(e.lngLat.lng,e.lngLat.lat,+$('direction').value,+$('speed').value,probe);
-    tip.style.display='block';tip.style.left=(e.originalEvent.clientX+12)+'px';tip.style.top=(e.originalEvent.clientY+12)+'px';
-    const speedLine=local?`<br>Vel. local: ${local.localSpeedKmh.toFixed(0)} km/h${local.venturiBoost>0.03?` · Venturi +${Math.round(local.venturiBoost*100)}%`:''}`:'';
-    const channelLine=local?`<br>Rumbo local: ${Math.round(local.localBearing)}°${Math.abs(local.channelDeflection)>1?` · canal ${signedDeg(local.channelDeflection)}`:''}`:'';
-    tip.innerHTML=`<b>${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}</b><br>Terreno: ${Math.round(elev)} m${local?`<br>w orográfica: ${(local.w>=0?'+':'')+local.w.toFixed(1)} m/s`:''}${speedLine}${channelLine}<br><span style="opacity:.75">clic: detalle puntual</span>`;
-  });
-  map.on('mouseleave',()=>tip.style.display='none');
-
   map.on('click',e=>{
     const z=terrainElev(e.lngLat.lng,e.lngLat.lat);
     if(z===null){setStatus('Aún no hay elevación cargada en ese punto. Espera a que termine de cargar el MDT.','loading');return;}
+
+    if(clickPopup){
+      const oldPopup=clickPopup;
+      clickPopup=null;
+      oldPopup.remove();
+    }
+
     selectedPoint={lon:e.lngLat.lng,lat:e.lngLat.lat};
-    buildSelectedStream(true);renderDeck(performance.now());
+    buildSelectedStream(true);
+    renderDeck(performance.now());
+
     const probe=clamp(localDetailConfig().step||180,70,220);
     const local=localFlowAt(e.lngLat.lng,e.lngLat.lat,+$('direction').value,+$('speed').value,probe);
-    if(clickPopup)clickPopup.remove();
     const channelDetails=local&&Math.abs(local.channelDeflection)>1
       ? `<br>Rumbo local: <strong>${Math.round(local.localBearing)}°</strong> <small>(canal ${signedDeg(local.channelDeflection)})</small>`
       : local?`<br>Rumbo local: <strong>${Math.round(local.localBearing)}°</strong>`:'';
     const details=local?`<br>Altitud: <strong>${Math.round(local.elev)} m</strong><br>Velocidad local: <strong>${local.localSpeedKmh.toFixed(0)} km/h</strong>${local.venturiBoost>0.03?` <small>(Venturi +${Math.round(local.venturiBoost*100)}%)</small>`:''}${channelDetails}<br>w estimada: <strong>${(local.w>=0?'+':'')+local.w.toFixed(1)} m/s</strong><br>${classFor(local.w,0)}`:'';
-    clickPopup=new maplibregl.Popup({offset:14,closeButton:true,closeOnClick:false}).setLngLat([e.lngLat.lng,e.lngLat.lat]).setHTML(`<b>Detalle puntual de viento</b>${details}<br><small>${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}</small>`).addTo(map);
+
+    const popup=new maplibregl.Popup({offset:14,closeButton:true,closeOnClick:false})
+      .setLngLat([e.lngLat.lng,e.lngLat.lat])
+      .setHTML(`<b>Detalle puntual de viento</b>${details}<br><small>${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}</small>`)
+      .addTo(map);
+
+    clickPopup=popup;
+    popup.on('close',()=>{
+      if(clickPopup===popup) clickPopup=null;
+      clearSelectedDetail();
+    });
   });
 
   map.on('load',()=>{
