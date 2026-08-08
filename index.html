@@ -11,8 +11,8 @@
 <div id="map"></div>
 <div class="panel">
   <div class="head">
-    <div class="title">🪂 Pitolero Wind Lab <span class="badge">v2.2</span></div>
-    <div class="subtitle">Orografía 3D real del IGN + modelo exploratorio de flujo para vuelo libre.</div>
+    <div class="title">🪂 Pitolero Wind Lab <span class="badge">v2.3</span></div>
+    <div class="subtitle">Orografía 3D real del IGN + flujo de viento tridimensional para vuelo libre.</div>
   </div>
   <div class="section">
     <div class="row"><span class="label">Viento desde</span><span class="value"><b id="dirLabel">NO</b> · <span id="dirDeg">315°</span></span></div>
@@ -29,9 +29,9 @@
     <select id="stability"><option value="unstable">Inestable / convectiva</option><option value="neutral" selected>Neutra</option><option value="stable">Estable</option></select>
   </div>
   <div class="section">
-    <div class="row"><span class="label">Densidad base de líneas</span><span class="value" id="densityLabel">27</span></div>
+    <div class="row"><span class="label">Densidad base del flujo</span><span class="value" id="densityLabel">27</span></div>
     <input id="density" type="range" min="7" max="27" step="2" value="27" />
-    <div class="notice" style="margin-top:6px">Detalle automático: <strong id="localDensityLabel">se densifica al ampliar</strong>. Al hacer zoom se añaden líneas locales más próximas entre sí.</div>
+    <div class="notice" style="margin-top:6px">Detalle automático: <strong id="localDensityLabel">se densifica al ampliar</strong>. Al hacer zoom aumenta la resolución espacial del campo de partículas.</div>
     <div class="row" style="margin-top:10px"><span class="label">Exageración del relieve</span><span class="value" id="exagLabel">1.35×</span></div>
     <input id="exag" type="range" min="1" max="2.2" step="0.05" value="1.35" />
   </div>
@@ -45,13 +45,13 @@
   </div>
   <div class="section">
     <div class="switches">
-      <label class="switch"><input id="particles" type="checkbox" checked /> partículas</label>
+      <label class="switch"><input id="particles" type="checkbox" checked /> partículas 3D</label>
       <label class="switch"><input id="hillshade" type="checkbox" checked /> sombreado</label>
       <label class="switch"><input id="ortho" type="checkbox" checked /> ortofoto PNOA</label>
-      <label class="switch"><input id="windLines" type="checkbox" checked /> líneas viento</label>
+      <label class="switch"><input id="windLines" type="checkbox" /> líneas guía</label>
     </div>
     <div class="actions" style="margin-top:9px"><button id="resetView">Vista Pitolero</button><button id="recalc">Recalcular flujo</button></div>
-    <div class="notice" style="margin-top:9px"><strong>Detalle puntual:</strong> haz clic sobre cualquier punto del terreno. Se dibujará una línea de viento específica que pasa por ese punto para inspeccionar su comportamiento local.</div>
+    <div class="notice" style="margin-top:9px"><strong>Partículas 3D:</strong> se desplazan más rápido cuanto mayor es la velocidad del viento y siguen la trayectoria vertical calculada sobre el relieve. <strong>Detalle puntual:</strong> haz clic sobre el terreno para mantener una línea completa de inspección en ese punto.</div>
   </div>
   <div class="section">
     <div class="legend"><div class="lg"><span class="sw up"></span>ascendencia</div><div class="lg"><span class="sw neutral"></span>flujo neutro</div><div class="lg"><span class="sw down"></span>descendencia</div><div class="lg"><span class="sw wake"></span>estela/rotor</div></div>
