@@ -15,12 +15,30 @@ function loadScript(src) {
   });
 }
 
+function installMapCapture() {
+  if (!window.maplibregl?.Map || window.__pitovientoMapCaptureInstalled) return;
+  const OriginalMap = window.maplibregl.Map;
+
+  class CapturedMap extends OriginalMap {
+    constructor(options) {
+      super(options);
+      window.__pitovientoMap = this;
+      window.dispatchEvent(new CustomEvent('pitoviento:map-ready', { detail: { map: this } }));
+    }
+  }
+
+  window.maplibregl.Map = CapturedMap;
+  window.__pitovientoMapCaptureInstalled = true;
+}
+
 export default function LegacyEngineLoader() {
   const [error, setError] = useState('');
 
   useEffect(() => {
     let active = true;
     const scripts = [];
+
+    installMapCapture();
 
     (async () => {
       try {
@@ -34,8 +52,8 @@ export default function LegacyEngineLoader() {
 
     return () => {
       active = false;
-      // Durante esta primera fase no destruimos el mapa legacy al desmontar:
-      // evitamos dobles inicializaciones mientras migramos el motor a módulos.
+      // En esta fase mantenemos vivo el mapa legacy para comparar ambos motores
+      // sobre exactamente las mismas teselas de terreno y la misma cámara.
     };
   }, []);
 
