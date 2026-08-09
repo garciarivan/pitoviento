@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import hashlib
 import math
 import os
 import time
@@ -12,13 +14,20 @@ from fastapi.responses import Response
 from .model import build_flow_field
 from .terrain import IgnTerrainSource
 
+try:
+    from vercel.functions import AsyncRuntimeCache
+except ImportError:  # Desarrollo local sin el SDK de Vercel.
+    AsyncRuntimeCache = None
+
 SITE_LAT = 40.13618392931326
 SITE_LON = -5.979353098143796
+CACHE_VERSION = "v2"
+CACHE_TTL = int(os.getenv("FIELD_CACHE_TTL", "1800"))
 
 app = FastAPI(
     title="Pitolero Wind Field API",
-    version="0.1.0",
-    description="Calcula en servidor un campo vectorial aerológico sobre el MDT del IGN.",
+    version="0.2.0",
+    description="Calcula en servidor un campo vectorial aerologico sobre el MDT del IGN.",
 )
 
 origins = [item.strip() for item in os.getenv("CORS_ORIGINS", "*").split(",") if item.strip()]
@@ -36,8 +45,12 @@ app.add_middleware(
 )
 
 terrain = IgnTerrainSource(zoom=int(os.getenv("DEM_ZOOM", "12")))
-field_cache = TTLCache(maxsize=int(os.getenv("FIELD_CACHE_SIZE", "128")), ttl=int(os.getenv("FIELD_CACHE_TTL", "1800")))
+field_cache = TTLCache(maxsize=int(os.getenv("FIELD_CACHE_SIZE", "128")), ttl=CACHE_TTL)
 cache_lock = asyncio.Lock()
+
+runtime_cache = None
+if os.getenv("VERCEL") == "1" and AsyncRuntimeCache is not None:
+    runtime_cache = AsyncRuntimeCache(namespace=f"pitoviento-wind-field-{CACHE_VERSION}")
 
 
 @dataclass
@@ -61,10 +74,83 @@ def bounds_around(lon: float, lat: float, area_km: float):
 
 
 def cache_key(lat: float, lon: float, area_km: float, direction: float, speed: float, stability: str, width: int, height: int):
-    return (
-        round(lat, 4), round(lon, 4), round(area_km, 1), round(direction % 360.0, 1),
-        round(speed, 1), stability, width, height, terrain.zoom
-    )
+    canonical = ":".join([
+        CACHE_VERSION,
+        f"{lat:.4f}", f"{lon:.4f}", f"{area_km:.1f}", f"{direction % 360.0:.1f}",
+        f"{speed:.1f}", stability, str(width), str(height), str(terrain.zoom)
+    ])
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _runtime_record(item: CachedField):
+    return {
+        "payload": base64.b64encode(item.payload).decode("ascii"),
+        "width": item.width,
+        "height": item.height,
+        "west": item.west,
+        "south": item.south,
+        "east": item.east,
+        "north": item.north,
+        "valid": item.valid,
+        "compute_ms": item.compute_ms,
+    }
+
+
+def _field_from_runtime(value):
+    try:
+        if not isinstance(value, dict) or "payload" not in value:
+            return None
+        return CachedField(
+            payload=base64.b64decode(value["payload"]),
+            width=int(value["width"]),
+            height=int(value["height"]),
+            west=float(value["west"]),
+            south=float(value["south"]),
+            east=float(value["east"]),
+            north=float(value["north"]),
+            valid=int(value["valid"]),
+            compute_ms=int(value.get("compute_ms", 0)),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+async def get_cached_field(key: str):
+    local = field_cache.get(key)
+    if local is not None:
+        return local, "MEMORY"
+
+    if runtime_cache is not None:
+        try:
+            value = await runtime_cache.get(key)
+            item = _field_from_runtime(value)
+            if item is not None:
+                field_cache[key] = item
+                return item, "RUNTIME"
+        except Exception:
+            # La API debe seguir funcionando aunque Runtime Cache no este disponible.
+            pass
+
+    return None, "MISS"
+
+
+async def store_cached_field(key: str, item: CachedField):
+    async with cache_lock:
+        field_cache[key] = item
+
+    if runtime_cache is not None:
+        try:
+            await runtime_cache.set(
+                key,
+                _runtime_record(item),
+                {
+                    "ttl": CACHE_TTL,
+                    "tags": [f"wind-field-{CACHE_VERSION}"],
+                    "name": f"Pitoviento {item.width}x{item.height}",
+                },
+            )
+        except Exception:
+            pass
 
 
 def field_response(item: CachedField, cache_state: str):
@@ -82,9 +168,22 @@ def field_response(item: CachedField, cache_state: str):
             "X-Field-Cache": cache_state,
             "X-Field-Compute-Ms": str(item.compute_ms),
             "X-DEM-Zoom": str(terrain.zoom),
-            "Cache-Control": "public, max-age=300",
+            # El navegador guarda brevemente el campo; Vercel puede servirlo desde edge
+            # durante mas tiempo sin volver a ejecutar Python para la misma URL.
+            "Cache-Control": "public, max-age=60",
+            "Vercel-CDN-Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
         },
     )
+
+
+@app.get("/api")
+async def api_root():
+    return {
+        "service": "pitoviento-server-field",
+        "version": app.version,
+        "health": "/api/health",
+        "field": "/api/wind-field",
+    }
 
 
 @app.get("/api/health")
@@ -92,8 +191,11 @@ async def health():
     return {
         "ok": True,
         "service": "pitoviento-server-field",
+        "version": app.version,
         "demZoom": terrain.zoom,
-        "cacheEntries": len(field_cache),
+        "memoryCacheEntries": len(field_cache),
+        "runtimeCache": runtime_cache is not None,
+        "vercel": os.getenv("VERCEL") == "1",
     }
 
 
@@ -109,18 +211,19 @@ async def wind_field(
     height: int = Query(128, ge=48, le=256),
 ):
     key = cache_key(lat, lon, area_km, direction, speed, stability, width, height)
-    cached = field_cache.get(key)
+    cached, cache_state = await get_cached_field(key)
     if cached is not None:
-        return field_response(cached, "HIT")
+        return field_response(cached, cache_state)
 
     started = time.perf_counter()
     west, south, east, north = bounds_around(lon, lat, area_km)
     grid = await terrain.sample_grid(west, south, east, north, width, height)
     expected = width * height
     if grid.valid < expected * 0.45:
-        raise HTTPException(status_code=503, detail=f"MDT insuficiente: {grid.valid}/{expected} muestras válidas")
+        raise HTTPException(status_code=503, detail=f"MDT insuficiente: {grid.valid}/{expected} muestras validas")
 
-    field, valid = build_flow_field(
+    field, valid = await asyncio.to_thread(
+        build_flow_field,
         grid.values,
         west=west,
         south=south,
@@ -143,6 +246,5 @@ async def wind_field(
         compute_ms=compute_ms,
     )
 
-    async with cache_lock:
-        field_cache[key] = item
+    await store_cached_field(key, item)
     return field_response(item, "MISS")
