@@ -1,7 +1,7 @@
 {
   "name": "pitoviento-react-gpu",
   "private": true,
-  "version": "4.0.0-dev.1",
+  "version": "4.0.0-dev.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@deck.gl/core": "9.3.7",
+    "@deck.gl/geo-layers": "9.3.7",
     "@deck.gl/layers": "9.3.7",
     "@deck.gl/mapbox": "9.3.7",
     "maplibre-gl": "6.0.0",
