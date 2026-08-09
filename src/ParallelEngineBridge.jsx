@@ -3,7 +3,8 @@ import {
   DeckParticleRenderer,
   FlowWorkerClient,
   boundsAroundSite,
-  buildTerrainGrid
+  buildTerrainGrid,
+  distanceM
 } from './engine/index.js';
 
 const SITE = { lon: -5.979353098143796, lat: 40.13618392931326, name: 'Pico Pitolero' };
@@ -67,6 +68,35 @@ function localConfig(map) {
   return { count: 127, spacingM: 52, totalM: 4400, step: 45 };
 }
 
+function localGridSpec(map) {
+  const zoom = map.getZoom();
+  if (zoom < 11.5) return null;
+
+  const bounds = map.getBounds();
+  const center = map.getCenter();
+  const lonPad = (bounds.getEast() - bounds.getWest()) * 0.22;
+  const latPad = (bounds.getNorth() - bounds.getSouth()) * 0.22;
+  const expanded = {
+    west: bounds.getWest() - lonPad,
+    south: bounds.getSouth() - latPad,
+    east: bounds.getEast() + lonPad,
+    north: bounds.getNorth() + latPad
+  };
+
+  const widthM = distanceM(expanded.west, center.lat, expanded.east, center.lat);
+  const heightM = distanceM(center.lng, expanded.south, center.lng, expanded.north);
+  const targetSpacing = zoom < 13 ? 150 : zoom < 14 ? 105 : zoom < 15 ? 75 : zoom < 16 ? 52 : 38;
+  const isMobile = window.matchMedia('(max-width:720px)').matches;
+  const cap = isMobile ? 181 : 241;
+  const minSize = isMobile ? 61 : 81;
+  const width = Math.max(minSize, Math.min(cap, Math.round(widthM / targetSpacing) + 1));
+  const height = Math.max(minSize, Math.min(cap, Math.round(heightM / targetSpacing) + 1));
+
+  const quant = value => Math.round(value * 2000) / 2000;
+  const key = [Math.floor(zoom * 2) / 2, quant(center.lng), quant(center.lat), width, height].join('|');
+  return { bounds: expanded, width, height, targetSpacing, key };
+}
+
 export default function ParallelEngineBridge() {
   const workerRef = useRef(null);
   const rendererRef = useRef(null);
@@ -77,12 +107,15 @@ export default function ParallelEngineBridge() {
   const streamsRef = useRef({ global: [], local: [], selected: null });
   const workerReadyRef = useRef(false);
   const workerPreparingRef = useRef(null);
+  const localGridKeyRef = useRef('');
+  const localGridPreparingRef = useRef(null);
   const [status, setStatus] = useState('nuevo motor en espera');
 
   useEffect(() => {
     let active = true;
     let map = null;
     let gridAbort = null;
+    let localGridAbort = null;
     const listeners = [];
 
     const addDomListener = (id, type, handler) => {
@@ -120,9 +153,7 @@ export default function ParallelEngineBridge() {
       const dw = Number.isFinite(oldW) ? siteSample.w - oldW : 0;
       const ds = Number.isFinite(oldSpeed) ? siteSample.localSpeedKmh - oldSpeed : 0;
       const tag = document.getElementById('engineCompare');
-      if (tag) {
-        tag.textContent = `Δ Pitolero: w ${dw >= 0 ? '+' : ''}${dw.toFixed(2)} m/s · vel ${ds >= 0 ? '+' : ''}${ds.toFixed(1)} km/h`;
-      }
+      if (tag) tag.textContent = `Δ Pitolero: w ${dw >= 0 ? '+' : ''}${dw.toFixed(2)} m/s · vel ${ds >= 0 ? '+' : ''}${ds.toFixed(1)} km/h`;
     };
 
     const prepareWorker = async () => {
@@ -137,7 +168,7 @@ export default function ParallelEngineBridge() {
         const bounds = boundsAroundSite(SITE, 60);
         const isMobile = window.matchMedia('(max-width:720px)').matches;
         const size = isMobile ? 181 : 221;
-        setStatus(`muestreando MDT ${size}×${size}…`);
+        setStatus(`muestreando MDT regional ${size}×${size}…`);
 
         const grid = await buildTerrainGrid({
           map,
@@ -149,26 +180,19 @@ export default function ParallelEngineBridge() {
           onProgress: progress => {
             if (!active) return;
             const pct = Math.round(progress * 100);
-            if (pct % 10 === 0) setStatus(`muestreando MDT… ${pct}%`);
+            if (pct % 10 === 0) setStatus(`muestreando MDT regional… ${pct}%`);
           }
         });
 
         if (!active) return null;
         const ratio = grid.valid / (grid.width * grid.height);
-        if (ratio < 0.45) {
-          throw new Error(`El MDT cargado es insuficiente para el worker (${Math.round(ratio * 100)}%).`);
-        }
+        if (ratio < 0.45) throw new Error(`El MDT cargado es insuficiente para el worker (${Math.round(ratio * 100)}%).`);
 
         const client = new FlowWorkerClient();
         workerRef.current = client;
-        const ready = await client.init({
-          grid,
-          site: SITE,
-          areaKm: 40,
-          controls: readControls()
-        });
+        const ready = await client.init({ grid, site: SITE, areaKm: 40, controls: readControls() });
         workerReadyRef.current = true;
-        setStatus(`worker listo · rejilla ${ready.grid.width}×${ready.grid.height} · ${Math.round(ratio * 100)}% válida`);
+        setStatus(`worker listo · regional ${ready.grid.width}×${ready.grid.height} · ${Math.round(ratio * 100)}% válida`);
         return client;
       })();
 
@@ -179,9 +203,52 @@ export default function ParallelEngineBridge() {
       }
     };
 
+    const ensureLocalGrid = async (client, token) => {
+      const spec = localGridSpec(map);
+      if (!spec) {
+        if (localGridKeyRef.current) {
+          localGridAbort?.abort();
+          localGridKeyRef.current = '';
+          await client.setLocalGrid(null);
+        }
+        return null;
+      }
+      if (spec.key === localGridKeyRef.current) return spec;
+      if (localGridPreparingRef.current) localGridAbort?.abort();
+
+      localGridPreparingRef.current = (async () => {
+        localGridAbort = new AbortController();
+        setStatus(`MDT local fino · ${spec.width}×${spec.height} · objetivo ~${spec.targetSpacing} m`);
+        const grid = await buildTerrainGrid({
+          map,
+          bounds: spec.bounds,
+          width: spec.width,
+          height: spec.height,
+          rowsPerSlice: 3,
+          signal: localGridAbort.signal
+        });
+        if (!active || token !== buildTokenRef.current) return null;
+        const ratio = grid.valid / (grid.width * grid.height);
+        if (ratio < 0.60) return null;
+        const reply = await client.setLocalGrid(grid);
+        if (!active || token !== buildTokenRef.current) return null;
+        localGridKeyRef.current = spec.key;
+        setStatus(`MDT local activo · ${reply.grid.width}×${reply.grid.height} · ~${spec.targetSpacing} m · ${Math.round(ratio * 100)}% válido`);
+        return spec;
+      })();
+
+      try {
+        return await localGridPreparingRef.current;
+      } catch (error) {
+        if (error?.name !== 'AbortError') throw error;
+        return null;
+      } finally {
+        localGridPreparingRef.current = null;
+      }
+    };
+
     const rebuild = async ({ global = true, local = true, selectedOnly = false } = {}) => {
-      const currentMode = mode();
-      if (currentMode === 'legacy') return;
+      if (mode() === 'legacy') return;
       const renderer = rendererRef.current;
       if (!renderer || !map?.isStyleLoaded()) return;
 
@@ -192,18 +259,19 @@ export default function ParallelEngineBridge() {
       const client = await prepareWorker();
       if (!active || token !== buildTokenRef.current || !client) return;
 
+      if (local || selectedOnly) await ensureLocalGrid(client, token);
+      if (!active || token !== buildTokenRef.current) return;
+
       const cfg = localConfig(map);
       const center = map.getCenter();
-      const selected = selectedRef.current
-        ? {
-            lon: selectedRef.current.lng,
-            lat: selectedRef.current.lat,
-            options: {
-              totalM: Math.max(5000, cfg.totalM || 8000),
-              step: Math.max(55, Math.min(220, cfg.step || 180))
-            }
-          }
-        : null;
+      const selected = selectedRef.current ? {
+        lon: selectedRef.current.lng,
+        lat: selectedRef.current.lat,
+        options: {
+          totalM: Math.max(5000, cfg.totalM || 8000),
+          step: Math.max(45, Math.min(220, cfg.step || 180))
+        }
+      } : null;
 
       const result = await client.build({
         controls,
@@ -232,9 +300,8 @@ export default function ParallelEngineBridge() {
         selected: streamsRef.current.selected
       });
       compareSite(result.siteSample);
-      setStatus(
-        `Worker listo · ${streamsRef.current.global.length} regionales · ${streamsRef.current.local.length} locales`
-      );
+      const localTag = result.localGrid ? ` · DEM local ${result.localGrid.width}×${result.localGrid.height}` : '';
+      setStatus(`Worker listo · ${streamsRef.current.global.length} regionales · ${streamsRef.current.local.length} locales${localTag}`);
     };
 
     const scheduleRebuild = (options, delay = 220) => {
@@ -246,7 +313,6 @@ export default function ParallelEngineBridge() {
       try {
         map = await waitForMap();
         if (!active) return;
-
         rendererRef.current = new DeckParticleRenderer({ map, widthMinPixels: 1.35, trailLength: 2.8 });
         updateRendererMode();
 
@@ -269,12 +335,10 @@ export default function ParallelEngineBridge() {
         addDomListener('exag', 'change', () => scheduleRebuild({ global: true, local: true }, 120));
 
         const onMoveEnd = () => {
-          if (mode() !== 'legacy') scheduleRebuild({ global: false, local: true }, 180);
+          if (mode() !== 'legacy') scheduleRebuild({ global: false, local: true }, 220);
         };
         const onIdle = () => {
-          if (mode() !== 'legacy' && streamsRef.current.global.length === 0) {
-            scheduleRebuild({ global: true, local: true }, 100);
-          }
+          if (mode() !== 'legacy' && streamsRef.current.global.length === 0) scheduleRebuild({ global: true, local: true }, 100);
         };
         const onClick = event => {
           selectedRef.current = event.lngLat;
@@ -297,6 +361,7 @@ export default function ParallelEngineBridge() {
     return () => {
       active = false;
       gridAbort?.abort();
+      localGridAbort?.abort();
       clearTimeout(rebuildTimerRef.current);
       cancelAnimationFrame(rafRef.current);
       listeners.forEach(dispose => dispose());
