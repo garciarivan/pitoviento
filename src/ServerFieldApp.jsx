@@ -48,8 +48,8 @@ export default function ServerFieldApp() {
   const [nonce, setNonce] = useState(0);
   const [status, setStatus] = useState('Inicializando mapa…');
   const [error, setError] = useState('');
-  const apiBase = import.meta.env.VITE_WIND_API_URL || 'http://localhost:8000';
-  const client = useMemo(() => new ServerFieldClient(apiBase), [apiBase]);
+  const client = useMemo(() => new ServerFieldClient(), []);
+  const apiLabel = import.meta.env.VITE_WIND_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : 'mismo dominio · /api');
 
   useEffect(() => {
     const map = new maplibregl.Map({
@@ -81,7 +81,7 @@ export default function ServerFieldApp() {
       });
       particleLayerRef.current.setEnabled(true);
       setReady(true);
-      setStatus('Mapa listo · esperando campo del servidor…');
+      setStatus('Mapa listo · solicitando campo al servidor…');
     });
 
     return () => {
@@ -100,7 +100,7 @@ export default function ServerFieldApp() {
       const controller = new AbortController();
       requestAbortRef.current = controller;
       setError('');
-      setStatus('Solicitando campo aerológico al servidor…');
+      setStatus('Solicitando campo aerologico al servidor…');
       try {
         const isMobile = window.matchMedia('(max-width:720px)').matches;
         const field = await client.buildField({
@@ -117,7 +117,8 @@ export default function ServerFieldApp() {
         if (controller.signal.aborted) return;
         particleLayerRef.current?.setField(field);
         const ratio = Math.round((field.valid / (field.width * field.height)) * 100);
-        setStatus(`Servidor ${field.meta.cache} · ${field.width}×${field.height} · ${ratio}% válido · ${field.meta.computeMs} ms · DEM z${field.meta.demZoom}`);
+        const edge = field.meta.edgeCache !== 'UNKNOWN' ? ` · edge ${field.meta.edgeCache}` : '';
+        setStatus(`Servidor ${field.meta.cache}${edge} · ${field.width}×${field.height} · ${ratio}% valido · ${field.meta.computeMs} ms · DEM z${field.meta.demZoom}`);
       } catch (err) {
         if (err?.name === 'AbortError') return;
         setError(err instanceof Error ? err.message : String(err));
@@ -132,7 +133,7 @@ export default function ServerFieldApp() {
       <div id="serverFieldMap" className="server-field-map" />
       <section className="server-field-panel">
         <div className="server-field-title">🪂 Pitolero Wind Lab <span className="server-field-badge">server-field</span></div>
-        <div className="server-field-subtitle">El servidor descarga el MDT del IGN y calcula el campo aerológico. El navegador solo dibuja el terreno y advecta las partículas en GPU.</div>
+        <div className="server-field-subtitle">FastAPI calcula el campo aerologico con el MDT del IGN. El navegador solo representa el terreno y advecta las particulas en GPU.</div>
 
         <div className="server-field-row"><span>Viento desde</span><strong>{direction}°</strong></div>
         <input type="range" min="0" max="359" step="1" value={direction} onChange={event => setDirection(Number(event.target.value))} />
@@ -149,8 +150,8 @@ export default function ServerFieldApp() {
 
         <button type="button" onClick={() => setNonce(value => value + 1)} style={{ marginTop: 11, width: '100%' }}>Recalcular en servidor</button>
         <div className={`server-field-status${error ? ' error' : ''}`}>{error || status}</div>
-        <div className="server-field-note">Los cambios se agrupan durante 260 ms para no lanzar peticiones mientras arrastras un control. Las respuestas iguales se cachean en el backend.</div>
-        <div className="server-field-api">API: {apiBase}</div>
+        <div className="server-field-note">Las peticiones se agrupan durante 260 ms. En Vercel el mismo campo puede servirse desde CDN, Runtime Cache o memoria de la funcion.</div>
+        <div className="server-field-api">API: {apiLabel}</div>
       </section>
     </div>
   );
