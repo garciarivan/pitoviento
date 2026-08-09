@@ -1,11 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { resolve } from 'node:path';
 
 export default defineConfig({
   plugins: [react()],
   base: '/pitoviento/',
   build: {
     target: 'es2022',
-    sourcemap: true
+    sourcemap: true,
+    rollupOptions: {
+      input: resolve(process.cwd(), 'react.html')
+    }
   }
 });
