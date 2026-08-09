@@ -1,0 +1,148 @@
+import asyncio
+import math
+import os
+import time
+from dataclasses import dataclass
+
+from cachetools import TTLCache
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+
+from model import build_flow_field
+from terrain import IgnTerrainSource
+
+SITE_LAT = 40.13618392931326
+SITE_LON = -5.979353098143796
+
+app = FastAPI(
+    title="Pitolero Wind Field API",
+    version="0.1.0",
+    description="Calcula en servidor un campo vectorial aerológico sobre el MDT del IGN.",
+)
+
+origins = [item.strip() for item in os.getenv("CORS_ORIGINS", "*").split(",") if item.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=False,
+    allow_methods=["GET"],
+    allow_headers=["*"],
+    expose_headers=[
+        "X-Field-Width", "X-Field-Height", "X-Field-West", "X-Field-South",
+        "X-Field-East", "X-Field-North", "X-Field-Valid", "X-Field-Cache",
+        "X-Field-Compute-Ms", "X-DEM-Zoom"
+    ],
+)
+
+terrain = IgnTerrainSource(zoom=int(os.getenv("DEM_ZOOM", "12")))
+field_cache = TTLCache(maxsize=int(os.getenv("FIELD_CACHE_SIZE", "128")), ttl=int(os.getenv("FIELD_CACHE_TTL", "1800")))
+cache_lock = asyncio.Lock()
+
+
+@dataclass
+class CachedField:
+    payload: bytes
+    width: int
+    height: int
+    west: float
+    south: float
+    east: float
+    north: float
+    valid: int
+    compute_ms: int
+
+
+def bounds_around(lon: float, lat: float, area_km: float):
+    half_m = area_km * 500.0
+    dlat = half_m / 111320.0
+    dlon = half_m / max(1000.0, 111320.0 * math.cos(math.radians(lat)))
+    return lon - dlon, lat - dlat, lon + dlon, lat + dlat
+
+
+def cache_key(lat: float, lon: float, area_km: float, direction: float, speed: float, stability: str, width: int, height: int):
+    return (
+        round(lat, 4), round(lon, 4), round(area_km, 1), round(direction % 360.0, 1),
+        round(speed, 1), stability, width, height, terrain.zoom
+    )
+
+
+def field_response(item: CachedField, cache_state: str):
+    return Response(
+        content=item.payload,
+        media_type="application/octet-stream",
+        headers={
+            "X-Field-Width": str(item.width),
+            "X-Field-Height": str(item.height),
+            "X-Field-West": f"{item.west:.8f}",
+            "X-Field-South": f"{item.south:.8f}",
+            "X-Field-East": f"{item.east:.8f}",
+            "X-Field-North": f"{item.north:.8f}",
+            "X-Field-Valid": str(item.valid),
+            "X-Field-Cache": cache_state,
+            "X-Field-Compute-Ms": str(item.compute_ms),
+            "X-DEM-Zoom": str(terrain.zoom),
+            "Cache-Control": "public, max-age=300",
+        },
+    )
+
+
+@app.get("/api/health")
+async def health():
+    return {
+        "ok": True,
+        "service": "pitoviento-server-field",
+        "demZoom": terrain.zoom,
+        "cacheEntries": len(field_cache),
+    }
+
+
+@app.get("/api/wind-field")
+async def wind_field(
+    lat: float = Query(SITE_LAT, ge=-85.0, le=85.0),
+    lon: float = Query(SITE_LON, ge=-180.0, le=180.0),
+    area_km: float = Query(40.0, ge=5.0, le=80.0),
+    direction: float = Query(315.0, ge=0.0, lt=360.0),
+    speed: float = Query(20.0, ge=2.0, le=100.0),
+    stability: str = Query("neutral", pattern="^(stable|neutral|unstable)$"),
+    width: int = Query(128, ge=48, le=256),
+    height: int = Query(128, ge=48, le=256),
+):
+    key = cache_key(lat, lon, area_km, direction, speed, stability, width, height)
+    cached = field_cache.get(key)
+    if cached is not None:
+        return field_response(cached, "HIT")
+
+    started = time.perf_counter()
+    west, south, east, north = bounds_around(lon, lat, area_km)
+    grid = await terrain.sample_grid(west, south, east, north, width, height)
+    expected = width * height
+    if grid.valid < expected * 0.45:
+        raise HTTPException(status_code=503, detail=f"MDT insuficiente: {grid.valid}/{expected} muestras válidas")
+
+    field, valid = build_flow_field(
+        grid.values,
+        west=west,
+        south=south,
+        east=east,
+        north=north,
+        from_deg=direction,
+        speed_kmh=speed,
+        stability=stability,
+    )
+    compute_ms = int((time.perf_counter() - started) * 1000)
+    item = CachedField(
+        payload=field.astype("<f4", copy=False).tobytes(order="C"),
+        width=width,
+        height=height,
+        west=west,
+        south=south,
+        east=east,
+        north=north,
+        valid=valid,
+        compute_ms=compute_ms,
+    )
+
+    async with cache_lock:
+        field_cache[key] = item
+    return field_response(item, "MISS")
