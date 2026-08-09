@@ -34,8 +34,9 @@ La petición API se iniciará en su propio efecto al montar el componente y no d
 Por separado, el componente tendrá una función idempotente de arranque de funciones visuales que:
 
 1. Activa el terreno cuando la fuente y el estilo están disponibles.
-2. Marca el cliente como listo para solicitar el campo.
-3. Intenta crear la capa GPU sin bloquear la petición a la API si falla.
+2. Intenta crear la capa GPU sin bloquear la petición a la API si falla.
+
+Ningún estado, evento o error del mapa habilitará, retrasará o cancelará por sí mismo la petición del campo.
 
 La función visual se llamará desde `style.load` y `styledata`. Un temporizador de 1500 ms comprobará `isStyleLoaded()` y repetirá la inicialización si los eventos ya ocurrieron o no llegan. Las operaciones visuales comprobarán sus propias precondiciones y guards `once`; el temporizador y todos los listeners se retirarán al desmontar, y ninguna continuación asíncrona actualizará estado después del desmontaje.
 
@@ -55,6 +56,8 @@ El componente mantendrá estados separados para `map`, `api`, `gpu` y `terrain`.
 
 Un fallo de relieve o GPU no impedirá pedir el campo ni sustituirá un error de API más accionable. Si hay varios fallos se mostrarán juntos, con API primero, después GPU, terreno y mapa. “Campo recibido” significará respuesta validada y guardada; “campo aplicado” significará entregado a una capa creada, aunque su `onAdd` todavía esté completando la subida WebGL.
 
+`map` pasará de `initializing` a `ready` en el primer `style.load`, `styledata` con `isStyleLoaded() === true` o comprobación temporizada equivalente. `map.on('error')` clasificará como `terrain` los errores cuya fuente sea cualquiera de las fuentes DEM; los errores del custom layer serán `gpu`; el resto serán `map`, incluidos fallos de teselas base u ortofoto. Un error de recurso no deshará un estado `ready`, pero quedará visible como advertencia específica.
+
 ### Contrato del cliente
 
 Además del tamaño exacto del payload, el cliente exigirá `application/octet-stream`, dimensiones enteras positivas, límites finitos y ordenados, y `X-Field-Valid` dentro de `0..width*height`. Una respuesta que incumpla cualquiera de esas condiciones producirá un error de API visible.
@@ -69,6 +72,7 @@ El hillshade y el terreno usarán dos fuentes MapLibre separadas con la misma pl
 - Prueba obligatoria mediante `vercel dev` o deployment preview: `/api` devuelve el identificador del servicio, `/api/health` devuelve su JSON de salud y `/api/wind-field` devuelve `application/octet-stream` con dimensiones y cabeceras `X-Field-*`. Un código 200 aislado no será suficiente.
 - Compilación de producción de Vite.
 - Pruebas del ciclo de vida confirmando una sola petición aun sin `load`, retención del campo antes de GPU, aplicación posterior, fallo GPU sin bloquear API, error API visible y desmontaje sin actualizaciones tardías.
+- Prueba de clasificación que simule un fallo de tesela base y confirme que aparece como error de mapa sin borrar el estado de API.
 - Prueba en navegador confirmando que el estado sale de `Inicializando mapa…`, que el campo se recibe y que el panel informa si se aplicó o si falló la GPU.
 - Tras desplegar, comprobación HTTP de las tres rutas y verificación visual de relieve y partículas.
 
