@@ -1,4 +1,5 @@
 import LegacyEngineLoader from './LegacyEngineLoader.jsx';
+import ParallelEngineBridge from './ParallelEngineBridge.jsx';
 
 const compass = [
   ['N', 0], ['NE', 45], ['E', 90], ['SE', 135],
@@ -10,7 +11,18 @@ function ControlPanel() {
     <div id="controlPanel" className="panel">
       <div className="head">
         <div className="title">🪂 Pitolero Wind Lab <span className="badge">react-gpu</span></div>
-        <div className="subtitle">Migración React + Vite sobre el motor visual de la v3.1.</div>
+        <div className="subtitle">React + Vite con comparación directa entre el motor visual v3.1 y el nuevo renderer GPU.</div>
+      </div>
+
+      <div className="section engine-dev-section">
+        <div className="row"><span className="label">Motor visual</span></div>
+        <select id="engineMode" defaultValue="legacy">
+          <option value="legacy">v3.1 original</option>
+          <option value="gpu">Nuevo GPU</option>
+          <option value="both">Comparar ambos</option>
+        </select>
+        <div id="engineCompare" className="notice engine-compare" style={{ marginTop: 7 }}>El nuevo motor se calcula solo al activarlo.</div>
+        <div className="notice" style={{ marginTop: 5 }}>La opción “Nuevo GPU” apaga únicamente las partículas legacy; mapa, terreno y controles siguen siendo los mismos para que la comparación sea justa.</div>
       </div>
 
       <div className="section">
@@ -35,7 +47,7 @@ function ControlPanel() {
       <div className="section">
         <div className="row"><span className="label">Densidad base del flujo</span><span className="value" id="densityLabel">27</span></div>
         <input id="density" type="range" min="7" max="27" step="2" defaultValue="27" />
-        <div className="notice" style={{ marginTop: 6 }}>La primera fase conserva la densidad y el render de la v3.1. <strong id="localDensityLabel">alta densidad regional</strong>.</div>
+        <div className="notice" style={{ marginTop: 6 }}>La v3.1 permanece intacta como referencia visual. <strong id="localDensityLabel">alta densidad regional</strong>.</div>
         <div className="row" style={{ marginTop: 10 }}><span className="label">Exageración del relieve</span><span className="value" id="exagLabel">1.35×</span></div>
         <input id="exag" type="range" min="1" max="2.2" step="0.05" defaultValue="1.35" />
       </div>
@@ -58,7 +70,7 @@ function ControlPanel() {
           <label className="switch"><input id="ortho" type="checkbox" defaultChecked /> ortofoto PNOA</label>
         </div>
         <div className="actions" style={{ marginTop: 9 }}><button id="resetView">Vista Pitolero</button><button id="recalc">Recalcular flujo</button></div>
-        <div className="notice" style={{ marginTop: 9 }}><strong>Fase 1:</strong> React controla la interfaz, mientras el motor aerológico v3.1 sigue funcionando sin cambios para preservar su aspecto visual.</div>
+        <div className="notice" style={{ marginTop: 9 }}><strong>Fase 2:</strong> ambos motores usan la misma instancia de MapLibre y el mismo MDT del IGN. Así podemos validar equivalencia antes de retirar el código legacy.</div>
       </div>
 
       <div className="section">
@@ -101,6 +113,7 @@ export default function App() {
       <DetailPanel />
       <div className="wind-chip"><div id="windArrow" className="arrow">↑</div><div><div className="big"><span id="chipDir">NO</span> · <span id="chipSpeed">20</span> km/h</div><div className="small">desde esa dirección · flecha hacia donde sopla</div></div></div>
       <LegacyEngineLoader />
+      <ParallelEngineBridge />
     </div>
   );
 }
