@@ -21,12 +21,12 @@ except ImportError:  # Desarrollo local sin el SDK de Vercel.
 
 SITE_LAT = 40.13618392931326
 SITE_LON = -5.979353098143796
-CACHE_VERSION = "v2"
+CACHE_VERSION = "v3-terrain-altitude"
 CACHE_TTL = int(os.getenv("FIELD_CACHE_TTL", "1800"))
 
 app = FastAPI(
     title="Pitolero Wind Field API",
-    version="0.2.0",
+    version="0.3.0",
     description="Calcula en servidor un campo vectorial aerologico sobre el MDT del IGN.",
 )
 
@@ -128,7 +128,6 @@ async def get_cached_field(key: str):
                 field_cache[key] = item
                 return item, "RUNTIME"
         except Exception:
-            # La API debe seguir funcionando aunque Runtime Cache no este disponible.
             pass
 
     return None, "MISS"
@@ -168,8 +167,6 @@ def field_response(item: CachedField, cache_state: str):
             "X-Field-Cache": cache_state,
             "X-Field-Compute-Ms": str(item.compute_ms),
             "X-DEM-Zoom": str(terrain.zoom),
-            # El navegador guarda brevemente el campo; Vercel puede servirlo desde edge
-            # durante mas tiempo sin volver a ejecutar Python para la misma URL.
             "Cache-Control": "public, max-age=60",
             "Vercel-CDN-Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
         },
