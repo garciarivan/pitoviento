@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   DeckParticleRenderer,
   FlowWorkerClient,
+  GpuVectorParticleLayer,
   boundsAroundSite,
   buildTerrainGrid,
   distanceM
@@ -16,7 +17,6 @@ function readControls() {
     const value = el ? Number(el.value) : fallback;
     return Number.isFinite(value) ? value : fallback;
   };
-
   return {
     fromDeg: number('direction', 315),
     speedKmh: number('speed', 20),
@@ -41,14 +41,6 @@ function waitForMap(timeoutMs = 15000) {
 
 function waitForIdle(map, timeoutMs = 5000) {
   return new Promise(resolve => {
-    if (map.loaded() && !map.isMoving()) {
-      const timer = setTimeout(resolve, 250);
-      map.once('idle', () => {
-        clearTimeout(timer);
-        resolve();
-      });
-      return;
-    }
     const timer = setTimeout(resolve, timeoutMs);
     map.once('idle', () => {
       clearTimeout(timer);
@@ -71,7 +63,6 @@ function localConfig(map) {
 function localGridSpec(map) {
   const zoom = map.getZoom();
   if (zoom < 11.5) return null;
-
   const bounds = map.getBounds();
   const center = map.getCenter();
   const lonPad = (bounds.getEast() - bounds.getWest()) * 0.22;
@@ -82,7 +73,6 @@ function localGridSpec(map) {
     east: bounds.getEast() + lonPad,
     north: bounds.getNorth() + latPad
   };
-
   const widthM = distanceM(expanded.west, center.lat, expanded.east, center.lat);
   const heightM = distanceM(center.lng, expanded.south, center.lng, expanded.north);
   const targetSpacing = zoom < 13 ? 150 : zoom < 14 ? 105 : zoom < 15 ? 75 : zoom < 16 ? 52 : 38;
@@ -91,7 +81,6 @@ function localGridSpec(map) {
   const minSize = isMobile ? 61 : 81;
   const width = Math.max(minSize, Math.min(cap, Math.round(widthM / targetSpacing) + 1));
   const height = Math.max(minSize, Math.min(cap, Math.round(heightM / targetSpacing) + 1));
-
   const quant = value => Math.round(value * 2000) / 2000;
   const key = [Math.floor(zoom * 2) / 2, quant(center.lng), quant(center.lat), width, height].join('|');
   return { bounds: expanded, width, height, targetSpacing, key };
@@ -100,6 +89,7 @@ function localGridSpec(map) {
 export default function ParallelEngineBridge() {
   const workerRef = useRef(null);
   const rendererRef = useRef(null);
+  const vectorRendererRef = useRef(null);
   const rafRef = useRef(0);
   const rebuildTimerRef = useRef(0);
   const buildTokenRef = useRef(0);
@@ -125,6 +115,10 @@ export default function ParallelEngineBridge() {
       listeners.push(() => el.removeEventListener(type, handler));
     };
 
+    const mode = () => document.getElementById('engineMode')?.value || 'legacy';
+    const needsTrips = current => current === 'gpu' || current === 'both';
+    const needsVector = current => current === 'vector';
+
     const setLegacyParticles = enabled => {
       const checkbox = document.getElementById('particles');
       if (!checkbox || checkbox.checked === enabled) return;
@@ -132,18 +126,16 @@ export default function ParallelEngineBridge() {
       checkbox.dispatchEvent(new Event('change', { bubbles: true }));
     };
 
-    const mode = () => document.getElementById('engineMode')?.value || 'legacy';
-
     const updateRendererMode = () => {
       const current = mode();
-      const renderer = rendererRef.current;
-      if (!renderer) return;
-      renderer.setEnabled(current === 'gpu' || current === 'both');
-      setLegacyParticles(current !== 'gpu');
-      if (current === 'legacy') setStatus('v3.1 activa · motor nuevo en espera');
+      rendererRef.current?.setEnabled(needsTrips(current));
+      vectorRendererRef.current?.setEnabled(needsVector(current));
+      setLegacyParticles(current === 'legacy' || current === 'both');
+      if (current === 'legacy') setStatus('v3.1 activa · motores nuevos en espera');
       else if (!workerReadyRef.current) setStatus('preparando rejilla DEM para el worker…');
-      else if (current === 'both') setStatus('comparación visual: v3.1 + GPU/Worker');
-      else setStatus('renderer GPU + worker activo');
+      else if (current === 'vector') setStatus('campo vectorial GPU activo');
+      else if (current === 'both') setStatus('comparación visual: v3.1 + TripsLayer');
+      else setStatus('TripsLayer + worker activo');
     };
 
     const compareSite = siteSample => {
@@ -159,17 +151,14 @@ export default function ParallelEngineBridge() {
     const prepareWorker = async () => {
       if (workerReadyRef.current) return workerRef.current;
       if (workerPreparingRef.current) return workerPreparingRef.current;
-
       workerPreparingRef.current = (async () => {
         await waitForIdle(map);
         if (!active) return null;
-
         gridAbort = new AbortController();
         const bounds = boundsAroundSite(SITE, 60);
         const isMobile = window.matchMedia('(max-width:720px)').matches;
         const size = isMobile ? 181 : 221;
         setStatus(`muestreando MDT regional ${size}×${size}…`);
-
         const grid = await buildTerrainGrid({
           map,
           bounds,
@@ -178,16 +167,13 @@ export default function ParallelEngineBridge() {
           rowsPerSlice: isMobile ? 2 : 4,
           signal: gridAbort.signal,
           onProgress: progress => {
-            if (!active) return;
             const pct = Math.round(progress * 100);
-            if (pct % 10 === 0) setStatus(`muestreando MDT regional… ${pct}%`);
+            if (active && pct % 10 === 0) setStatus(`muestreando MDT regional… ${pct}%`);
           }
         });
-
         if (!active) return null;
         const ratio = grid.valid / (grid.width * grid.height);
         if (ratio < 0.45) throw new Error(`El MDT cargado es insuficiente para el worker (${Math.round(ratio * 100)}%).`);
-
         const client = new FlowWorkerClient();
         workerRef.current = client;
         const ready = await client.init({ grid, site: SITE, areaKm: 40, controls: readControls() });
@@ -195,7 +181,6 @@ export default function ParallelEngineBridge() {
         setStatus(`worker listo · regional ${ready.grid.width}×${ready.grid.height} · ${Math.round(ratio * 100)}% válida`);
         return client;
       })();
-
       try {
         return await workerPreparingRef.current;
       } finally {
@@ -215,7 +200,6 @@ export default function ParallelEngineBridge() {
       }
       if (spec.key === localGridKeyRef.current) return spec;
       if (localGridPreparingRef.current) localGridAbort?.abort();
-
       localGridPreparingRef.current = (async () => {
         localGridAbort = new AbortController();
         setStatus(`MDT local fino · ${spec.width}×${spec.height} · objetivo ~${spec.targetSpacing} m`);
@@ -230,13 +214,12 @@ export default function ParallelEngineBridge() {
         if (!active || token !== buildTokenRef.current) return null;
         const ratio = grid.valid / (grid.width * grid.height);
         if (ratio < 0.60) return null;
-        const reply = await client.setLocalGrid(grid);
+        const response = await client.setLocalGrid(grid);
         if (!active || token !== buildTokenRef.current) return null;
         localGridKeyRef.current = spec.key;
-        setStatus(`MDT local activo · ${reply.grid.width}×${reply.grid.height} · ~${spec.targetSpacing} m · ${Math.round(ratio * 100)}% válido`);
+        setStatus(`MDT local activo · ${response.grid.width}×${response.grid.height} · ~${spec.targetSpacing} m`);
         return spec;
       })();
-
       try {
         return await localGridPreparingRef.current;
       } catch (error) {
@@ -247,61 +230,67 @@ export default function ParallelEngineBridge() {
       }
     };
 
-    const rebuild = async ({ global = true, local = true, selectedOnly = false } = {}) => {
-      if (mode() === 'legacy') return;
-      const renderer = rendererRef.current;
-      if (!renderer || !map?.isStyleLoaded()) return;
-
-      const token = ++buildTokenRef.current;
-      const controls = readControls();
-      setStatus(workerReadyRef.current ? 'calculando en Web Worker…' : 'preparando worker…');
-
-      const client = await prepareWorker();
-      if (!active || token !== buildTokenRef.current || !client) return;
-
-      if (local || selectedOnly) await ensureLocalGrid(client, token);
+    const rebuildVectorField = async (client, controls, token) => {
+      const isMobile = window.matchMedia('(max-width:720px)').matches;
+      setStatus('generando campo vectorial en Worker…');
+      const field = await client.buildField({
+        controls,
+        width: isMobile ? 96 : 128,
+        height: isMobile ? 96 : 128,
+        preferLocal: map.getZoom() >= 11.5
+      });
       if (!active || token !== buildTokenRef.current) return;
+      vectorRendererRef.current?.setField(field);
+      const ratio = field.valid / (field.width * field.height);
+      const sample = await client.sample({ controls, probe: 180 });
+      if (!active || token !== buildTokenRef.current) return;
+      compareSite(sample.sample);
+      setStatus(`GPU vectorial · ${field.width}×${field.height} · ${Math.round(ratio * 100)}% válido · 60.000 partículas`);
+    };
 
+    const rebuildTrips = async (client, controls, token, { global = true, local = true, selectedOnly = false } = {}) => {
       const cfg = localConfig(map);
       const center = map.getCenter();
       const selected = selectedRef.current ? {
         lon: selectedRef.current.lng,
         lat: selectedRef.current.lat,
-        options: {
-          totalM: Math.max(5000, cfg.totalM || 8000),
-          step: Math.max(45, Math.min(220, cfg.step || 180))
-        }
+        options: { totalM: Math.max(5000, cfg.totalM || 8000), step: Math.max(45, Math.min(220, cfg.step || 180)) }
       } : null;
-
       const result = await client.build({
         controls,
         global: selectedOnly ? false : global,
         local: selectedOnly ? false : local,
         globalOptions: { density: controls.density, totalM: 54000, step: 850 },
         localOptions: cfg.count > 0 ? {
-          center: { lon: center.lng, lat: center.lat },
-          count: cfg.count,
-          spacingM: cfg.spacingM,
-          totalM: cfg.totalM,
-          step: cfg.step
+          center: { lon: center.lng, lat: center.lat }, count: cfg.count, spacingM: cfg.spacingM, totalM: cfg.totalM, step: cfg.step
         } : { count: 0 },
         selected,
         clearSelected: !selected
       });
-
       if (!active || token !== buildTokenRef.current) return;
       if (result.globalStreams) streamsRef.current.global = result.globalStreams;
       if (result.localStreams) streamsRef.current.local = result.localStreams;
       if (result.selectedStream !== undefined) streamsRef.current.selected = result.selectedStream;
-
-      renderer.setStreams({
+      rendererRef.current?.setStreams({
         global: streamsRef.current.global,
         local: streamsRef.current.local,
         selected: streamsRef.current.selected
       });
       compareSite(result.siteSample);
-      const localTag = result.localGrid ? ` · DEM local ${result.localGrid.width}×${result.localGrid.height}` : '';
-      setStatus(`Worker listo · ${streamsRef.current.global.length} regionales · ${streamsRef.current.local.length} locales${localTag}`);
+      setStatus(`TripsLayer · ${streamsRef.current.global.length} regionales · ${streamsRef.current.local.length} locales`);
+    };
+
+    const rebuild = async (options = {}) => {
+      const current = mode();
+      if (current === 'legacy' || !map?.isStyleLoaded()) return;
+      const token = ++buildTokenRef.current;
+      const controls = readControls();
+      const client = await prepareWorker();
+      if (!active || token !== buildTokenRef.current || !client) return;
+      await ensureLocalGrid(client, token);
+      if (!active || token !== buildTokenRef.current) return;
+      if (needsVector(current)) await rebuildVectorField(client, controls, token);
+      else await rebuildTrips(client, controls, token, options);
     };
 
     const scheduleRebuild = (options, delay = 220) => {
@@ -313,12 +302,17 @@ export default function ParallelEngineBridge() {
       try {
         map = await waitForMap();
         if (!active) return;
+        await waitForIdle(map);
+        if (!active) return;
         rendererRef.current = new DeckParticleRenderer({ map, widthMinPixels: 1.35, trailLength: 2.8 });
+        vectorRendererRef.current = new GpuVectorParticleLayer({
+          map,
+          particleCount: window.matchMedia('(max-width:720px)').matches ? 30000 : 60000
+        });
         updateRendererMode();
 
         const animate = now => {
-          const renderer = rendererRef.current;
-          if (renderer) renderer.setCurrentTime((now * 0.016) % CYCLE);
+          rendererRef.current?.setCurrentTime((now * 0.016) % CYCLE);
           rafRef.current = requestAnimationFrame(animate);
         };
         rafRef.current = requestAnimationFrame(animate);
@@ -338,11 +332,11 @@ export default function ParallelEngineBridge() {
           if (mode() !== 'legacy') scheduleRebuild({ global: false, local: true }, 220);
         };
         const onIdle = () => {
-          if (mode() !== 'legacy' && streamsRef.current.global.length === 0) scheduleRebuild({ global: true, local: true }, 100);
+          if (mode() !== 'legacy' && !workerReadyRef.current) scheduleRebuild({ global: true, local: true }, 100);
         };
         const onClick = event => {
           selectedRef.current = event.lngLat;
-          if (mode() !== 'legacy') scheduleRebuild({ selectedOnly: true }, 30);
+          if (needsTrips(mode())) scheduleRebuild({ selectedOnly: true }, 30);
         };
 
         map.on('moveend', onMoveEnd);
@@ -366,9 +360,11 @@ export default function ParallelEngineBridge() {
       cancelAnimationFrame(rafRef.current);
       listeners.forEach(dispose => dispose());
       workerRef.current?.destroy();
-      workerRef.current = null;
       rendererRef.current?.destroy();
+      vectorRendererRef.current?.destroy();
+      workerRef.current = null;
       rendererRef.current = null;
+      vectorRendererRef.current = null;
     };
   }, []);
 
