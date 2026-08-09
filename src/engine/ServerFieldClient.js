@@ -1,8 +1,18 @@
 const DEFAULT_API = import.meta.env.DEV ? 'http://localhost:8000' : '';
 
-function numberHeader(headers, name, fallback = 0) {
-  const value = Number(headers.get(name));
-  return Number.isFinite(value) ? value : fallback;
+function requiredNumberHeader(headers, name) {
+  const raw = headers.get(name);
+  const value = Number(raw);
+  if (raw === null || !Number.isFinite(value)) {
+    throw new Error(`Cabecera ${name} ausente o inválida`);
+  }
+  return value;
+}
+
+function requiredIntegerHeader(headers, name) {
+  const value = requiredNumberHeader(headers, name);
+  if (!Number.isInteger(value)) throw new Error(`Cabecera ${name} debe ser un entero`);
+  return value;
 }
 
 export class ServerFieldClient {
@@ -40,9 +50,29 @@ export class ServerFieldClient {
       throw new Error(detail || `Error ${response.status} calculando el campo en servidor`);
     }
 
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.toLowerCase().startsWith('application/octet-stream')) {
+      throw new Error(`Tipo de respuesta inválido: ${contentType || 'sin Content-Type'}`);
+    }
+
+    const fieldWidth = requiredIntegerHeader(response.headers, 'X-Field-Width');
+    const fieldHeight = requiredIntegerHeader(response.headers, 'X-Field-Height');
+    if (fieldWidth <= 0 || fieldHeight <= 0) {
+      throw new Error(`Dimensiones de campo inválidas: ${fieldWidth}×${fieldHeight}`);
+    }
+
+    const west = requiredNumberHeader(response.headers, 'X-Field-West');
+    const south = requiredNumberHeader(response.headers, 'X-Field-South');
+    const east = requiredNumberHeader(response.headers, 'X-Field-East');
+    const north = requiredNumberHeader(response.headers, 'X-Field-North');
+    if (west >= east || south >= north) throw new Error('Límites geográficos del campo inválidos');
+
+    const valid = requiredIntegerHeader(response.headers, 'X-Field-Valid');
+    if (valid < 0 || valid > fieldWidth * fieldHeight) {
+      throw new Error(`Número de muestras válidas fuera de rango: ${valid}`);
+    }
+
     const buffer = await response.arrayBuffer();
-    const fieldWidth = numberHeader(response.headers, 'X-Field-Width', width);
-    const fieldHeight = numberHeader(response.headers, 'X-Field-Height', height);
     const expectedBytes = fieldWidth * fieldHeight * 4 * 4;
     if (buffer.byteLength !== expectedBytes) {
       throw new Error(`Campo binario invalido: ${buffer.byteLength} bytes, esperados ${expectedBytes}`);
@@ -51,19 +81,19 @@ export class ServerFieldClient {
     return {
       width: fieldWidth,
       height: fieldHeight,
-      valid: numberHeader(response.headers, 'X-Field-Valid', fieldWidth * fieldHeight),
+      valid,
       bounds: {
-        west: numberHeader(response.headers, 'X-Field-West'),
-        south: numberHeader(response.headers, 'X-Field-South'),
-        east: numberHeader(response.headers, 'X-Field-East'),
-        north: numberHeader(response.headers, 'X-Field-North')
+        west,
+        south,
+        east,
+        north
       },
       data: new Float32Array(buffer),
       meta: {
         cache: response.headers.get('X-Field-Cache') || 'UNKNOWN',
         edgeCache: response.headers.get('x-vercel-cache') || 'UNKNOWN',
-        computeMs: numberHeader(response.headers, 'X-Field-Compute-Ms'),
-        demZoom: numberHeader(response.headers, 'X-DEM-Zoom')
+        computeMs: requiredNumberHeader(response.headers, 'X-Field-Compute-Ms'),
+        demZoom: requiredNumberHeader(response.headers, 'X-DEM-Zoom')
       }
     };
   }

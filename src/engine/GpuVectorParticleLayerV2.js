@@ -81,7 +81,7 @@ void main(){
   float altitude = terrainElevation + 65.0 + max(-45.0, a_state.z);
   vec2 xy = mercatorXY(a_state.xy);
   gl_Position = u_matrix * vec4(xy, mercatorZ(altitude, a_state.y), 1.0);
-  gl_PointSize = 2.4;
+  gl_PointSize = 1.8;
 
   if (field.z > 0.55) v_color = vec4(0.21, 0.89, 0.50, 0.95);
   else if (field.z < -0.55) v_color = vec4(1.0, 0.36, 0.42, 0.95);
@@ -145,15 +145,15 @@ function unpackRenderArgs(first, second){
   if (first?.gl) {
     return {
       gl: first.gl,
-      matrix: first.modelViewProjectionMatrix || first.defaultProjectionData?.mainMatrix || first.matrix || null
+      matrix: first.defaultProjectionData?.mainMatrix || first.modelViewProjectionMatrix || first.matrix || null
     };
   }
-  const matrix = second?.modelViewProjectionMatrix || second?.defaultProjectionData?.mainMatrix || second?.matrix || (second?.length === 16 ? second : null);
+  const matrix = second?.defaultProjectionData?.mainMatrix || second?.modelViewProjectionMatrix || second?.matrix || (second?.length === 16 ? second : null);
   return { gl: first, matrix };
 }
 
 export class GpuVectorParticleLayerV2 {
-  constructor({ map, id = 'pitoviento-vector-particles-v2', particleCount = 60000 } = {}) {
+  constructor({ map, id = 'pitoviento-vector-particles-v2', particleCount = 60000, onReady, onFirstRender } = {}) {
     if (!map) throw new TypeError('GpuVectorParticleLayerV2 necesita MapLibre.');
     this.map = map;
     this.id = id;
@@ -161,6 +161,9 @@ export class GpuVectorParticleLayerV2 {
     this.renderingMode = '3d';
     this.particleCount = particleCount;
     this.enabled = false;
+    this.onReady = onReady;
+    this.onFirstRender = onFirstRender;
+    this.hasRendered = false;
     this.field = null;
     this.lastTime = 0;
     this.readIndex = 0;
@@ -193,6 +196,7 @@ export class GpuVectorParticleLayerV2 {
     this.fieldTexture = gl.createTexture();
     this.ready = true;
     if (this.field) this.uploadField();
+    this.onReady?.();
   }
 
   uploadField(){
@@ -265,6 +269,11 @@ export class GpuVectorParticleLayerV2 {
     gl.drawArrays(gl.POINTS, 0, this.particleCount);
     gl.depthMask(true);
 
+    if (!this.hasRendered) {
+      this.hasRendered = true;
+      this.onFirstRender?.();
+    }
+
     gl.bindVertexArray(null);
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
@@ -287,6 +296,8 @@ export class GpuVectorParticleLayerV2 {
   destroy(){
     if (this.map?.getLayer(this.id)) this.map.removeLayer(this.id);
     this.field = null;
+    this.onReady = null;
+    this.onFirstRender = null;
     this.map = null;
   }
 }
