@@ -118,7 +118,13 @@ def build_flow_field(elev: np.ndarray, *, west: float, south: float, east: float
     east_ms = local_speed_ms * east_unit
     north_ms = local_speed_ms * north_unit
 
-    field = np.stack([east_ms, north_ms, vertical, boost], axis=-1).astype(np.float32)
+    # RGBA del campo que consume la GPU:
+    # R = componente este (m/s)
+    # G = componente norte (m/s)
+    # B = componente vertical w (m/s)
+    # A = elevacion del terreno (m). La aceleracion Venturi ya queda incorporada
+    #     en la magnitud de R/G y no necesita un canal separado para el render.
+    field = np.stack([east_ms, north_ms, vertical, elev], axis=-1).astype(np.float32)
     valid = int(np.isfinite(field).all(axis=-1).sum())
     field = np.nan_to_num(field, nan=0.0, posinf=0.0, neginf=0.0)
     return field, valid
