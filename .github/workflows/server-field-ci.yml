@@ -2,7 +2,7 @@ name: server-field CI
 
 on:
   push:
-    branches: [server-field]
+    branches: [main, server-field]
   workflow_dispatch:
 
 permissions:
