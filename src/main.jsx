@@ -6,7 +6,9 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import '../style.css';
 import App from './App.jsx';
 
-window.maplibregl = maplibregl;
+// El código v3.1 espera globals. Exponemos una facade mutable de MapLibre para
+// poder interceptar únicamente el constructor Map durante la fase de comparación.
+window.maplibregl = { ...maplibregl };
 window.deck = { MapboxOverlay, PathLayer, ScatterplotLayer };
 
 createRoot(document.getElementById('root')).render(<App />);
