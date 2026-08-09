@@ -7,10 +7,11 @@ const CYCLE = 100;
 function streamToTrip(stream, cycle = CYCLE) {
   if (!stream?.path?.length || !stream.timeline?.length) return null;
   const totalTime = Math.max(stream.totalTime || 1, 1);
+  const middle = Math.max(0, Math.floor(((stream.values?.length || 1) - 1) / 2));
   return {
     path: stream.path,
     timestamps: stream.timeline.map(value => (value / totalTime) * cycle),
-    color: stream.values?.[Math.floor((stream.values.length - 1) / 2)]?.color || [90, 200, 250, 205]
+    color: stream.values?.[middle]?.color || [90, 200, 250, 205]
   };
 }
 
@@ -37,15 +38,31 @@ export class DeckParticleRenderer {
     this.widthMinPixels = widthMinPixels;
     this.trailLength = trailLength;
     this.currentTime = 0;
+    this.enabled = false;
     this.overlay = new MapboxOverlay({ interleaved: true, layers: [] });
     map.addControl(this.overlay);
     this.data = { global: [], local: [], selected: null, probe: null };
+    this.trips = { global: [], local: [], selected: [] };
+  }
+
+  setEnabled(enabled) {
+    this.enabled = Boolean(enabled);
+    this.render();
   }
 
   setStreams({ global = [], local = [], selected = null } = {}) {
     this.data.global = global;
     this.data.local = local;
     this.data.selected = selected;
+    this.trips.global = makeCopies(global.map(streamToTrip), 5);
+    this.trips.local = makeCopies(local.map(streamToTrip), 8);
+    this.trips.selected = selected ? makeCopies([streamToTrip(selected)], 10) : [];
+    this.render();
+  }
+
+  setSelected(selected = null) {
+    this.data.selected = selected;
+    this.trips.selected = selected ? makeCopies([streamToTrip(selected)], 10) : [];
     this.render();
   }
 
@@ -55,25 +72,24 @@ export class DeckParticleRenderer {
   }
 
   setCurrentTime(time) {
-    this.currentTime = time % CYCLE;
-    this.render();
-  }
-
-  buildTrips() {
-    const globalTrips = makeCopies(this.data.global.map(streamToTrip), 4);
-    const localTrips = makeCopies(this.data.local.map(streamToTrip), 7);
-    const selectedTrips = this.data.selected ? makeCopies([streamToTrip(this.data.selected)], 9) : [];
-    return { globalTrips, localTrips, selectedTrips };
+    this.currentTime = ((time % CYCLE) + CYCLE) % CYCLE;
+    if (this.enabled) this.render();
   }
 
   render() {
-    const { globalTrips, localTrips, selectedTrips } = this.buildTrips();
-    const layers = [];
+    if (!this.overlay) return;
+    if (!this.enabled) {
+      this.overlay.setProps({ layers: [] });
+      return;
+    }
 
-    if (globalTrips.length || localTrips.length) {
+    const layers = [];
+    const normalTrips = [...this.trips.global, ...this.trips.local];
+
+    if (normalTrips.length) {
       layers.push(new TripsLayer({
         id: 'pitoviento-next-trips',
-        data: [...globalTrips, ...localTrips],
+        data: normalTrips,
         getPath: item => item.path,
         getTimestamps: item => item.timestamps,
         getColor: item => item.color,
@@ -82,14 +98,15 @@ export class DeckParticleRenderer {
         widthMinPixels: this.widthMinPixels,
         capRounded: true,
         jointRounded: true,
-        opacity: 0.92
+        opacity: 0.94,
+        parameters: { depthTest: true }
       }));
     }
 
-    if (selectedTrips.length) {
+    if (this.trips.selected.length) {
       layers.push(new TripsLayer({
         id: 'pitoviento-next-selected',
-        data: selectedTrips,
+        data: this.trips.selected,
         getPath: item => item.path,
         getTimestamps: item => item.timestamps,
         getColor: () => [255, 255, 255, 245],
@@ -97,7 +114,8 @@ export class DeckParticleRenderer {
         trailLength: 4.2,
         widthMinPixels: 2.0,
         capRounded: true,
-        jointRounded: true
+        jointRounded: true,
+        parameters: { depthTest: true }
       }));
     }
 
