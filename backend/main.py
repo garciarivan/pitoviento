@@ -9,8 +9,8 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
-from model import build_flow_field
-from terrain import IgnTerrainSource
+from .model import build_flow_field
+from .terrain import IgnTerrainSource
 
 SITE_LAT = 40.13618392931326
 SITE_LON = -5.979353098143796
