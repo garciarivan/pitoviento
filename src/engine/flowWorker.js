@@ -2,10 +2,31 @@ import { WindParticleEngine } from './WindParticleEngine.js';
 import { createGridSampler } from './TerrainGrid.js';
 
 let engine = null;
+let regionalSampler = null;
+let localSampler = null;
 let gridMeta = null;
+let localGridMeta = null;
+
+function compositeSampler(lon, lat) {
+  const local = localSampler ? localSampler(lon, lat) : null;
+  if (Number.isFinite(local)) return local;
+  return regionalSampler ? regionalSampler(lon, lat) : null;
+}
 
 function reply(id, type, payload = {}) {
   self.postMessage({ id, type, ...payload });
+}
+
+function metaFor(grid) {
+  return {
+    width: grid.width,
+    height: grid.height,
+    valid: grid.valid,
+    west: grid.west,
+    south: grid.south,
+    east: grid.east,
+    north: grid.north
+  };
 }
 
 self.onmessage = event => {
@@ -18,17 +39,12 @@ self.onmessage = event => {
         ...message.grid,
         values: new Float32Array(message.gridBuffer)
       };
-      gridMeta = {
-        width: grid.width,
-        height: grid.height,
-        valid: message.grid.valid,
-        west: grid.west,
-        south: grid.south,
-        east: grid.east,
-        north: grid.north
-      };
+      gridMeta = metaFor(grid);
+      regionalSampler = createGridSampler(grid);
+      localSampler = null;
+      localGridMeta = null;
       engine = new WindParticleEngine({
-        terrainSampler: createGridSampler(grid),
+        terrainSampler: compositeSampler,
         site: message.site,
         areaKm: message.areaKm || 40,
         stability: message.controls?.stability || 'neutral',
@@ -42,13 +58,28 @@ self.onmessage = event => {
 
     if (!engine) throw new Error('Worker aerológico no inicializado.');
 
+    if (type === 'setLocalGrid') {
+      if (message.clear) {
+        localSampler = null;
+        localGridMeta = null;
+        reply(id, 'localGrid', { grid: null });
+        return;
+      }
+      const grid = {
+        ...message.grid,
+        values: new Float32Array(message.gridBuffer)
+      };
+      localSampler = createGridSampler(grid);
+      localGridMeta = metaFor(grid);
+      reply(id, 'localGrid', { grid: localGridMeta });
+      return;
+    }
+
     if (type === 'build') {
       const controls = message.controls || {};
       engine.setWind(controls);
 
-      if (message.global) {
-        engine.buildGlobal(message.globalOptions || {});
-      }
+      if (message.global) engine.buildGlobal(message.globalOptions || {});
 
       if (message.local) {
         if (message.localOptions?.count > 0) engine.buildLocal(message.localOptions);
@@ -69,7 +100,8 @@ self.onmessage = event => {
         globalStreams: message.global ? engine.globalStreams : null,
         localStreams: message.local ? engine.localStreams : null,
         selectedStream: message.selected || message.clearSelected ? engine.selectedStream : undefined,
-        siteSample: engine.sampleSite(180)
+        siteSample: engine.sampleSite(180),
+        localGrid: localGridMeta
       });
       return;
     }
