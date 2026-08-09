@@ -64,6 +64,18 @@ export class FlowWorkerClient {
     }, [buffer]);
   }
 
+  async buildField(payload = {}) {
+    const result = await this.request('buildField', payload);
+    return {
+      width: result.width,
+      height: result.height,
+      valid: result.valid,
+      probe: result.probe,
+      bounds: result.bounds,
+      data: new Float32Array(result.fieldBuffer)
+    };
+  }
+
   build(payload) {
     return this.request('build', payload);
   }
