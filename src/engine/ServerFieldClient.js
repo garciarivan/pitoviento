@@ -1,4 +1,4 @@
-const DEFAULT_API = 'http://localhost:8000';
+const DEFAULT_API = import.meta.env.DEV ? 'http://localhost:8000' : '';
 
 function numberHeader(headers, name, fallback = 0) {
   const value = Number(headers.get(name));
@@ -7,17 +7,21 @@ function numberHeader(headers, name, fallback = 0) {
 
 export class ServerFieldClient {
   constructor(baseUrl = import.meta.env.VITE_WIND_API_URL || DEFAULT_API) {
-    this.baseUrl = baseUrl.replace(/\/$/, '');
+    this.baseUrl = (baseUrl || '').replace(/\/$/, '');
+  }
+
+  endpoint(path) {
+    return this.baseUrl ? `${this.baseUrl}${path}` : path;
   }
 
   async health(signal) {
-    const response = await fetch(`${this.baseUrl}/api/health`, { signal });
+    const response = await fetch(this.endpoint('/api/health'), { signal });
     if (!response.ok) throw new Error(`API ${response.status}`);
     return response.json();
   }
 
   async buildField({ lat, lon, areaKm = 40, direction = 315, speed = 20, stability = 'neutral', width = 128, height = 128, signal } = {}) {
-    const url = new URL(`${this.baseUrl}/api/wind-field`);
+    const url = new URL(this.endpoint('/api/wind-field'), window.location.origin);
     url.searchParams.set('lat', String(lat));
     url.searchParams.set('lon', String(lon));
     url.searchParams.set('area_km', String(areaKm));
@@ -41,7 +45,7 @@ export class ServerFieldClient {
     const fieldHeight = numberHeader(response.headers, 'X-Field-Height', height);
     const expectedBytes = fieldWidth * fieldHeight * 4 * 4;
     if (buffer.byteLength !== expectedBytes) {
-      throw new Error(`Campo binario inválido: ${buffer.byteLength} bytes, esperados ${expectedBytes}`);
+      throw new Error(`Campo binario invalido: ${buffer.byteLength} bytes, esperados ${expectedBytes}`);
     }
 
     return {
@@ -57,6 +61,7 @@ export class ServerFieldClient {
       data: new Float32Array(buffer),
       meta: {
         cache: response.headers.get('X-Field-Cache') || 'UNKNOWN',
+        edgeCache: response.headers.get('x-vercel-cache') || 'UNKNOWN',
         computeMs: numberHeader(response.headers, 'X-Field-Compute-Ms'),
         demZoom: numberHeader(response.headers, 'X-DEM-Zoom')
       }
