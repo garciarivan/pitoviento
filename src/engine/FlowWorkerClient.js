@@ -47,6 +47,23 @@ export class FlowWorkerClient {
     }, [buffer]);
   }
 
+  setLocalGrid(grid = null) {
+    if (!grid) return this.request('setLocalGrid', { clear: true });
+    const buffer = grid.values.buffer;
+    return this.request('setLocalGrid', {
+      grid: {
+        west: grid.west,
+        south: grid.south,
+        east: grid.east,
+        north: grid.north,
+        width: grid.width,
+        height: grid.height,
+        valid: grid.valid
+      },
+      gridBuffer: buffer
+    }, [buffer]);
+  }
+
   build(payload) {
     return this.request('build', payload);
   }
