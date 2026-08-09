@@ -1,47 +1,94 @@
-# Pitoviento · Pitolero Wind Lab v2
+# Pitoviento · Server Field
 
-Prototipo web para explorar el comportamiento orográfico del viento en el Pico Pitolero (Cabezabellosa, Cáceres).
+Rama experimental para mover el calculo aerologico fuera del navegador.
 
-## Qué hace
+## Arquitectura
 
-- Terreno 3D real usando el servicio XYZ oficial de elevaciones del IGN/CNIG, basado en MDT05 LiDAR.
-- Ortofoto PNOA de máxima actualidad como capa base.
-- Navegación 3D tipo globo/mapa: zoom, inclinación y rotación.
-- Dirección de viento meteorológica 0–359°, velocidad y estabilidad atmosférica.
-- Líneas de flujo 3D coloreadas por ascendencia, descendencia y posible estela/rotor.
-- Partículas animadas sobre las líneas de flujo.
-- Lectura de elevación y componente vertical orográfica estimada al mover el cursor.
-- Área de estudio inicial de 40 × 40 km alrededor de 40.13618392931326, -5.979353098143796.
-
-## Cómo abrirlo
-
-Abre `index.html` en un navegador moderno con conexión a Internet. Las librerías y las teselas del IGN se cargan en línea.
-
-Si el navegador bloquea peticiones al abrir desde `file://`, sirve la carpeta con un servidor local, por ejemplo:
-
-```bash
-python -m http.server 8080
+```text
+MDT IGN/CNIG
+    ↓
+FastAPI + NumPy
+    ↓
+CDN / Runtime Cache / memoria de funcion
+    ↓
+campo vectorial binario Float32
+    ↓
+MapLibre + adveccion WebGL2 en el navegador
 ```
 
-Y abre `http://localhost:8080/`.
+El navegador sigue renderizando mapa, terreno y particulas, pero ya no construye el campo aerologico ni recorre el MDT para calcularlo.
+
+## Frontend
+
+La entrada principal es `index.html`, construida con Vite y React. En produccion usa la API del mismo dominio (`/api`). Para apuntar a un backend externo se puede definir:
+
+```bash
+VITE_WIND_API_URL=https://mi-backend.example.com
+```
+
+## Backend
+
+El entrypoint para Vercel es `api/index.py`, que exporta la aplicacion FastAPI de `backend/main.py`.
+
+Endpoints:
+
+- `GET /api`
+- `GET /api/health`
+- `GET /api/wind-field`
+
+`/api/wind-field` devuelve un buffer `Float32` RGBA por celda con componentes horizontales del viento, componente vertical estimada y Venturi. Los limites, dimensiones y metadatos se devuelven en cabeceras HTTP.
+
+## Cache
+
+Se usan tres niveles cuando la aplicacion esta en Vercel:
+
+1. Cache corta en memoria de la instancia Python.
+2. Vercel Runtime Cache para reutilizar campos entre ejecuciones.
+3. Vercel CDN Cache para que peticiones identicas puedan evitar la ejecucion de Python.
+
+El Runtime Cache es opcional: si no esta disponible, la API sigue funcionando con cache local y calculo normal.
+
+## Desarrollo local
+
+Frontend:
+
+```bash
+npm install
+npm run dev
+```
+
+Backend:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn backend.main:app --reload --port 8000
+```
+
+Vite usa `http://localhost:8000` automaticamente durante desarrollo. Tambien se puede usar `vercel dev` para probar frontend y Python bajo el mismo origen.
+
+## Despliegue en Vercel
+
+La rama incluye:
+
+- `vercel.json`
+- `.python-version` con Python 3.12
+- `requirements.txt` en la raiz
+- `api/index.py`
+- build Vite a `dist/`
+
+Conecta el repositorio a un proyecto de Vercel y selecciona la rama `server-field` para un Preview Deployment, o despliega desde CLI con Vercel CLI.
+
+No hace falta configurar `VITE_WIND_API_URL` si frontend y backend se despliegan juntos en el mismo proyecto.
 
 ## Fuentes
 
-- MDT05 / Raster DEM: IGN/CNIG, CC BY 4.0 scne.es.
-- PNOA máxima actualidad: IGN/CNIG.
-- MapLibre GL JS para terreno 3D.
-- deck.gl para las trayectorias y partículas 3D.
+- MDT/Raster DEM: IGN/CNIG.
+- Ortofoto PNOA: IGN/CNIG.
+- MapLibre GL JS para el terreno 3D.
+- FastAPI y NumPy para el campo calculado en servidor.
 
-## Limitación física
+## Limitacion fisica
 
-El campo de viento es un modelo diagnóstico y exploratorio basado en pendiente, orientación, velocidad, estabilidad y una parametrización simple de estela. No es CFD, no resuelve Navier–Stokes y no debe usarse como única fuente para decisiones de seguridad de vuelo.
-
-## Siguiente iteración prevista
-
-Incorporar MDT50cm de tercera cobertura PNOA-LiDAR como nivel de detalle local alrededor de despegues y crestas, y separar explícitamente las capas de barlovento, sotavento, Venturi y rotor.
-
-## Estructura
-
-- `index.html`: interfaz principal.
-- `style.css`: estilos de la aplicación.
-- `app.js`: mapa 3D, terreno y modelo de viento.
+El campo sigue siendo un modelo diagnostico y exploratorio basado en relieve y parametrizaciones de canalizacion, pendiente y Venturi. No es CFD ni resuelve Navier-Stokes y no debe usarse como unica fuente para decisiones de seguridad de vuelo.
