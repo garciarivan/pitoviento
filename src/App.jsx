@@ -11,18 +11,19 @@ function ControlPanel() {
     <div id="controlPanel" className="panel">
       <div className="head">
         <div className="title">🪂 Pitolero Wind Lab <span className="badge">react-gpu</span></div>
-        <div className="subtitle">React + Vite con comparación directa entre el motor visual v3.1 y el nuevo renderer GPU.</div>
+        <div className="subtitle">React + Vite con comparación directa entre v3.1, TripsLayer y advección vectorial WebGL2.</div>
       </div>
 
       <div className="section engine-dev-section">
         <div className="row"><span className="label">Motor visual</span></div>
         <select id="engineMode" defaultValue="legacy">
           <option value="legacy">v3.1 original</option>
-          <option value="gpu">Nuevo GPU</option>
-          <option value="both">Comparar ambos</option>
+          <option value="gpu">GPU · trayectorias TripsLayer</option>
+          <option value="vector">GPU vectorial · 60.000 partículas</option>
+          <option value="both">Comparar v3.1 + TripsLayer</option>
         </select>
         <div id="engineCompare" className="notice engine-compare" style={{ marginTop: 7 }}>El nuevo motor se calcula solo al activarlo.</div>
-        <div className="notice" style={{ marginTop: 5 }}>La opción “Nuevo GPU” apaga únicamente las partículas legacy; mapa, terreno y controles siguen siendo los mismos para que la comparación sea justa.</div>
+        <div className="notice" style={{ marginTop: 5 }}>“GPU vectorial” mueve las partículas mediante transform feedback en WebGL2 sobre un campo regular calculado en el Web Worker.</div>
       </div>
 
       <div className="section">
@@ -70,7 +71,7 @@ function ControlPanel() {
           <label className="switch"><input id="ortho" type="checkbox" defaultChecked /> ortofoto PNOA</label>
         </div>
         <div className="actions" style={{ marginTop: 9 }}><button id="resetView">Vista Pitolero</button><button id="recalc">Recalcular flujo</button></div>
-        <div className="notice" style={{ marginTop: 9 }}><strong>Fase 2:</strong> ambos motores usan la misma instancia de MapLibre y el mismo MDT del IGN. Así podemos validar equivalencia antes de retirar el código legacy.</div>
+        <div className="notice" style={{ marginTop: 9 }}><strong>Fase 3:</strong> el Worker genera un campo vectorial regular y WebGL2 advecta decenas de miles de partículas sin recalcular su posición en JavaScript.</div>
       </div>
 
       <div className="section">
