@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
-import { GpuVectorParticleLayer } from './engine/GpuVectorParticleLayer.js';
+import { GpuVectorParticleLayerV2 } from './engine/GpuVectorParticleLayerV2.js';
 import { ServerFieldClient } from './engine/ServerFieldClient.js';
 
 const SITE = { lon: -5.979353098143796, lat: 40.13618392931326 };
@@ -18,23 +18,26 @@ function mapStyle() {
     },
     layers: [
       { id: 'base', type: 'raster', source: 'ignbase', paint: { 'raster-opacity': 1 } },
-      { id: 'ortho', type: 'raster', source: 'pnoa', paint: { 'raster-opacity': 0.72, 'raster-saturation': -0.12, 'raster-contrast': 0.08 } },
-      { id: 'hillshade', type: 'hillshade', source: 'terrain', paint: { 'hillshade-exaggeration': 0.35, 'hillshade-shadow-color': '#071017', 'hillshade-highlight-color': '#fff4d8', 'hillshade-accent-color': '#3b4a54' } }
-    ],
-    terrain: { source: 'terrain', exaggeration: 1.35 }
+      { id: 'ortho', type: 'raster', source: 'pnoa', paint: { 'raster-opacity': 0.74, 'raster-saturation': -0.08, 'raster-contrast': 0.10 } },
+      { id: 'hillshade', type: 'hillshade', source: 'terrain', paint: { 'hillshade-exaggeration': 0.42, 'hillshade-shadow-color': '#071017', 'hillshade-highlight-color': '#fff4d8', 'hillshade-accent-color': '#3b4a54' } }
+    ]
   };
 }
 
 function applyAtmosphere(map) {
   if (typeof map.setSky !== 'function') return;
-  map.setSky({
-    'sky-color': '#7eb9ef',
-    'sky-horizon-blend': 0.28,
-    'horizon-color': '#dceeff',
-    'horizon-fog-blend': 0.22,
-    'fog-color': '#eff7ff',
-    'fog-ground-blend': 0.12
-  });
+  try {
+    map.setSky({
+      'sky-color': '#7eb9ef',
+      'sky-horizon-blend': 0.28,
+      'horizon-color': '#dceeff',
+      'horizon-fog-blend': 0.22,
+      'fog-color': '#eff7ff',
+      'fog-ground-blend': 0.12
+    });
+  } catch (error) {
+    console.warn('No se pudo activar la atmósfera:', error);
+  }
 }
 
 export default function ServerFieldApp() {
@@ -52,6 +55,7 @@ export default function ServerFieldApp() {
   const apiLabel = import.meta.env.VITE_WIND_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : 'mismo dominio · /api');
 
   useEffect(() => {
+    let mounted = true;
     const map = new maplibregl.Map({
       container: 'serverFieldMap',
       style: mapStyle(),
@@ -61,8 +65,12 @@ export default function ServerFieldApp() {
       bearing: 28,
       maxPitch: 85,
       maxZoom: 18,
-      antialias: true,
-      hash: false
+      hash: false,
+      canvasContextAttributes: {
+        antialias: true,
+        contextType: 'webgl2',
+        powerPreference: 'high-performance'
+      }
     });
     mapRef.current = map;
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
@@ -72,22 +80,52 @@ export default function ServerFieldApp() {
     markerEl.className = 'server-site-marker';
     new maplibregl.Marker({ element: markerEl, anchor: 'center' }).setLngLat([SITE.lon, SITE.lat]).addTo(map);
 
-    map.on('load', () => {
+    const onStyleLoad = () => {
+      if (!mounted) return;
+      try {
+        map.setTerrain({ source: 'terrain', exaggeration: 1.45 });
+      } catch (terrainError) {
+        console.warn('No se pudo activar terrain:', terrainError);
+      }
       applyAtmosphere(map);
-      particleLayerRef.current = new GpuVectorParticleLayer({
-        map,
-        id: 'pitoviento-server-vector-particles',
-        particleCount: window.matchMedia('(max-width:720px)').matches ? 30000 : 60000
-      });
-      particleLayerRef.current.setEnabled(true);
+    };
+
+    const onMapError = event => {
+      const message = event?.error?.message || 'Error cargando recurso del mapa';
+      console.error('MapLibre:', event?.error || event);
+      if (mounted && /webgl|shader|terrain/i.test(message)) setError(message);
+    };
+
+    map.on('style.load', onStyleLoad);
+    map.on('error', onMapError);
+
+    map.on('load', () => {
+      if (!mounted) return;
+      // La API debe comenzar aunque falle la capa GPU; así el estado ya no puede
+      // quedarse eternamente en "Inicializando mapa…" por un error WebGL.
       setReady(true);
-      setStatus('Mapa listo · solicitando campo al servidor…');
+      setStatus('Mapa 3D listo · solicitando campo al servidor…');
+
+      try {
+        particleLayerRef.current = new GpuVectorParticleLayerV2({
+          map,
+          id: 'pitoviento-server-vector-particles-v2',
+          particleCount: window.matchMedia('(max-width:720px)').matches ? 30000 : 60000
+        });
+        particleLayerRef.current.setEnabled(true);
+      } catch (gpuError) {
+        console.error('No se pudo iniciar el renderer GPU:', gpuError);
+        setError(`Renderer GPU: ${gpuError instanceof Error ? gpuError.message : String(gpuError)}`);
+      }
     });
 
     return () => {
+      mounted = false;
       requestAbortRef.current?.abort();
       particleLayerRef.current?.destroy();
       particleLayerRef.current = null;
+      map.off('style.load', onStyleLoad);
+      map.off('error', onMapError);
       mapRef.current = null;
       map.remove();
     };
@@ -99,8 +137,7 @@ export default function ServerFieldApp() {
       requestAbortRef.current?.abort();
       const controller = new AbortController();
       requestAbortRef.current = controller;
-      setError('');
-      setStatus('Solicitando campo aerologico al servidor…');
+      setStatus('Solicitando campo aerológico al servidor…');
       try {
         const isMobile = window.matchMedia('(max-width:720px)').matches;
         const field = await client.buildField({
@@ -118,7 +155,8 @@ export default function ServerFieldApp() {
         particleLayerRef.current?.setField(field);
         const ratio = Math.round((field.valid / (field.width * field.height)) * 100);
         const edge = field.meta.edgeCache !== 'UNKNOWN' ? ` · edge ${field.meta.edgeCache}` : '';
-        setStatus(`Servidor ${field.meta.cache}${edge} · ${field.width}×${field.height} · ${ratio}% valido · ${field.meta.computeMs} ms · DEM z${field.meta.demZoom}`);
+        setError('');
+        setStatus(`Servidor ${field.meta.cache}${edge} · ${field.width}×${field.height} · ${ratio}% válido · ${field.meta.computeMs} ms · DEM z${field.meta.demZoom}`);
       } catch (err) {
         if (err?.name === 'AbortError') return;
         setError(err instanceof Error ? err.message : String(err));
@@ -133,7 +171,7 @@ export default function ServerFieldApp() {
       <div id="serverFieldMap" className="server-field-map" />
       <section className="server-field-panel">
         <div className="server-field-title">🪂 Pitolero Wind Lab <span className="server-field-badge">server-field</span></div>
-        <div className="server-field-subtitle">FastAPI calcula el campo aerologico con el MDT del IGN. El navegador solo representa el terreno y advecta las particulas en GPU.</div>
+        <div className="server-field-subtitle">FastAPI calcula el campo aerológico con el MDT del IGN. El navegador representa el relieve 3D y advecta las partículas sobre la elevación real.</div>
 
         <div className="server-field-row"><span>Viento desde</span><strong>{direction}°</strong></div>
         <input type="range" min="0" max="359" step="1" value={direction} onChange={event => setDirection(Number(event.target.value))} />
@@ -150,7 +188,7 @@ export default function ServerFieldApp() {
 
         <button type="button" onClick={() => setNonce(value => value + 1)} style={{ marginTop: 11, width: '100%' }}>Recalcular en servidor</button>
         <div className={`server-field-status${error ? ' error' : ''}`}>{error || status}</div>
-        <div className="server-field-note">Las peticiones se agrupan durante 260 ms. En Vercel el mismo campo puede servirse desde CDN, Runtime Cache o memoria de la funcion.</div>
+        <div className="server-field-note">Las peticiones se agrupan durante 260 ms. En Vercel el mismo campo puede servirse desde CDN, Runtime Cache o memoria de la función.</div>
         <div className="server-field-api">API: {apiLabel}</div>
       </section>
     </div>
