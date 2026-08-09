@@ -1,13 +1,95 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#071017" />
-    <title>Pitolero Wind Lab · React GPU</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Pitolero Wind Lab · orografía 3D y viento</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+<div id="map"></div>
+<div id="controlPanel" class="panel">
+  <div class="head">
+    <div class="title">🪂 Pitolero Wind Lab <span class="badge">v3.1</span></div>
+    <div class="subtitle">Orografía 3D real del IGN + flujo de viento tridimensional para vuelo libre.</div>
+  </div>
+  <div class="section">
+    <div class="row"><span class="label">Viento desde</span><span class="value"><b id="dirLabel">NO</b> · <span id="dirDeg">315°</span></span></div>
+    <input id="direction" type="range" min="0" max="359" step="1" value="315" />
+    <div class="compass" style="margin-top:8px">
+      <button data-dir="0">N</button><button data-dir="45">NE</button><button data-dir="90">E</button><button data-dir="135">SE</button>
+      <button data-dir="180">S</button><button data-dir="225">SO</button><button data-dir="270">O</button><button data-dir="315" class="active">NO</button>
+    </div>
+  </div>
+  <div class="section">
+    <div class="row"><span class="label">Velocidad</span><span class="value"><span id="speedLabel">20</span> km/h</span></div>
+    <input id="speed" type="range" min="5" max="55" step="1" value="20" />
+    <div class="row" style="margin-top:12px"><span class="label">Estabilidad</span></div>
+    <select id="stability"><option value="unstable">Inestable / convectiva</option><option value="neutral" selected>Neutra</option><option value="stable">Estable</option></select>
+  </div>
+  <div class="section">
+    <div class="row"><span class="label">Densidad base del flujo</span><span class="value" id="densityLabel">27</span></div>
+    <input id="density" type="range" min="7" max="27" step="2" value="27" />
+    <div class="notice" style="margin-top:6px">La densidad visual es alta. <strong id="localDensityLabel">alta densidad regional</strong>. Al ampliar se añaden muchas más trayectorias locales y partículas.</div>
+    <div class="row" style="margin-top:10px"><span class="label">Exageración del relieve</span><span class="value" id="exagLabel">1.35×</span></div>
+    <input id="exag" type="range" min="1" max="2.2" step="0.05" value="1.35" />
+  </div>
+  <div class="section">
+    <div class="metrics">
+      <div class="metric"><div class="k">Pitolero</div><div class="v" id="siteElev">— m</div><div class="s">elevación DEM</div></div>
+      <div class="metric"><div class="k">w estimada</div><div class="v" id="siteW">— m/s</div><div class="s" id="siteClass">esperando terreno</div></div>
+      <div class="metric"><div class="k">Velocidad local</div><div class="v" id="siteLocalSpeed">— km/h</div><div class="s" id="siteVenturi">calculando relieve</div></div>
+      <div class="metric"><div class="k">Dirección flujo</div><div class="v" id="flowDir">135°</div><div class="s" id="flowDirSub">base sinóptica</div></div>
+      <div class="metric"><div class="k">Área</div><div class="v">40 × 40</div><div class="s">km alrededor</div></div>
+      <div class="metric"><div class="k">Canalización</div><div class="v">±40°</div><div class="s">solo con confinamiento de valle</div></div>
+    </div>
+  </div>
+  <div class="section">
+    <div class="switches">
+      <label class="switch"><input id="particles" type="checkbox" checked /> partículas 3D</label>
+      <label class="switch"><input id="hillshade" type="checkbox" checked /> sombreado</label>
+      <label class="switch"><input id="ortho" type="checkbox" checked /> ortofoto PNOA</label>
+    </div>
+    <div class="actions" style="margin-top:9px"><button id="resetView">Vista Pitolero</button><button id="recalc">Recalcular flujo</button></div>
+    <div class="notice" style="margin-top:9px"><strong>Canalización por valles:</strong> la dirección meteorológica sigue siendo la referencia, pero el flujo puede desviarse gradualmente cuando el MDT detecta un corredor con relieve elevado a ambos lados. <strong>Detalle puntual:</strong> haz clic sobre el terreno y la información aparecerá en el panel lateral derecho sin tapar la trayectoria.</div>
+  </div>
+  <div class="section">
+    <div class="legend"><div class="lg"><span class="sw up"></span>ascendencia</div><div class="lg"><span class="sw neutral"></span>flujo neutro</div><div class="lg"><span class="sw down"></span>descendencia</div><div class="lg"><span class="sw wake"></span>estela/rotor</div></div>
+  </div>
+  <div class="section">
+    <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">Cargando mapa y MDT oficial…</span></div>
+    <div class="notice" style="margin-top:9px"><strong>Importante:</strong> es una herramienta diagnóstica de orografía, no CFD ni una predicción operativa. La canalización horizontal se estima comparando corredores posibles en el MDT y conserva siempre la dirección sinóptica como referencia dominante.</div>
+  </div>
+</div>
+<button id="panelToggle" class="panel-toggle" aria-controls="controlPanel" aria-expanded="false" aria-label="Abrir controles">›</button>
+
+<aside id="detailPanel" class="detail-panel" aria-hidden="true" aria-label="Detalle puntual de viento">
+  <div class="detail-head">
+    <div>
+      <div class="detail-eyebrow">Punto seleccionado</div>
+      <div class="detail-title">Detalle del viento</div>
+    </div>
+    <button id="detailClose" class="detail-close" type="button" aria-label="Cerrar detalle">×</button>
+  </div>
+  <div id="detailCoords" class="detail-coords">—</div>
+  <div class="detail-grid">
+    <div class="detail-item"><span>Altitud</span><strong id="detailElev">—</strong></div>
+    <div class="detail-item"><span>Velocidad local</span><strong id="detailSpeed">—</strong></div>
+    <div class="detail-item"><span>Rumbo local</span><strong id="detailBearing">—</strong></div>
+    <div class="detail-item"><span>Canalización</span><strong id="detailChannel">—</strong></div>
+    <div class="detail-item"><span>Venturi</span><strong id="detailVenturi">—</strong></div>
+    <div class="detail-item"><span>w estimada</span><strong id="detailW">—</strong></div>
+  </div>
+  <div id="detailClass" class="detail-class">—</div>
+  <div class="detail-hint">La trayectoria resaltada nace en este punto. Cierra este panel para eliminarla.</div>
+</aside>
+
+<div class="wind-chip"><div id="windArrow" class="arrow">↑</div><div><div class="big"><span id="chipDir">NO</span> · <span id="chipSpeed">20</span> km/h</div><div class="small">desde esa dirección · flecha hacia donde sopla</div></div></div>
+<script src="./mobile-performance.js"></script>
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/deck.gl@^9.0.0/dist.min.js"></script>
+<script src="./app.js"></script>
+<script src="./detail-panel.js"></script>
+</body>
 </html>
