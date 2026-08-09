@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { WindParticleEngine, DeckParticleRenderer } from './engine/index.js';
+import {
+  DeckParticleRenderer,
+  FlowWorkerClient,
+  boundsAroundSite,
+  buildTerrainGrid
+} from './engine/index.js';
 
 const SITE = { lon: -5.979353098143796, lat: 40.13618392931326, name: 'Pico Pitolero' };
 const CYCLE = 100;
@@ -33,6 +38,24 @@ function waitForMap(timeoutMs = 15000) {
   });
 }
 
+function waitForIdle(map, timeoutMs = 5000) {
+  return new Promise(resolve => {
+    if (map.loaded() && !map.isMoving()) {
+      const timer = setTimeout(resolve, 250);
+      map.once('idle', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+      return;
+    }
+    const timer = setTimeout(resolve, timeoutMs);
+    map.once('idle', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
 function localConfig(map) {
   const zoom = map.getZoom();
   if (zoom < 11) return { count: 0, spacingM: 0, totalM: 0, step: 0 };
@@ -45,17 +68,21 @@ function localConfig(map) {
 }
 
 export default function ParallelEngineBridge() {
-  const engineRef = useRef(null);
+  const workerRef = useRef(null);
   const rendererRef = useRef(null);
   const rafRef = useRef(0);
   const rebuildTimerRef = useRef(0);
   const buildTokenRef = useRef(0);
   const selectedRef = useRef(null);
+  const streamsRef = useRef({ global: [], local: [], selected: null });
+  const workerReadyRef = useRef(false);
+  const workerPreparingRef = useRef(null);
   const [status, setStatus] = useState('nuevo motor en espera');
 
   useEffect(() => {
     let active = true;
     let map = null;
+    let gridAbort = null;
     const listeners = [];
 
     const addDomListener = (id, type, handler) => {
@@ -81,77 +108,133 @@ export default function ParallelEngineBridge() {
       renderer.setEnabled(current === 'gpu' || current === 'both');
       setLegacyParticles(current !== 'gpu');
       if (current === 'legacy') setStatus('v3.1 activa · motor nuevo en espera');
-      else if (current === 'both') setStatus('comparación visual: v3.1 + GPU');
-      else setStatus('renderer GPU activo');
+      else if (!workerReadyRef.current) setStatus('preparando rejilla DEM para el worker…');
+      else if (current === 'both') setStatus('comparación visual: v3.1 + GPU/Worker');
+      else setStatus('renderer GPU + worker activo');
     };
 
-    const compareSite = () => {
-      const engine = engineRef.current;
-      if (!engine) return;
-      const next = engine.sampleSite(180);
-      if (!next) return;
-
+    const compareSite = siteSample => {
+      if (!siteSample) return;
       const oldW = Number.parseFloat(document.getElementById('siteW')?.textContent || '');
       const oldSpeed = Number.parseFloat(document.getElementById('siteLocalSpeed')?.textContent || '');
-      const dw = Number.isFinite(oldW) ? next.w - oldW : 0;
-      const ds = Number.isFinite(oldSpeed) ? next.localSpeedKmh - oldSpeed : 0;
+      const dw = Number.isFinite(oldW) ? siteSample.w - oldW : 0;
+      const ds = Number.isFinite(oldSpeed) ? siteSample.localSpeedKmh - oldSpeed : 0;
       const tag = document.getElementById('engineCompare');
       if (tag) {
         tag.textContent = `Δ Pitolero: w ${dw >= 0 ? '+' : ''}${dw.toFixed(2)} m/s · vel ${ds >= 0 ? '+' : ''}${ds.toFixed(1)} km/h`;
       }
     };
 
-    const rebuild = async ({ global = true, local = true } = {}) => {
+    const prepareWorker = async () => {
+      if (workerReadyRef.current) return workerRef.current;
+      if (workerPreparingRef.current) return workerPreparingRef.current;
+
+      workerPreparingRef.current = (async () => {
+        await waitForIdle(map);
+        if (!active) return null;
+
+        gridAbort = new AbortController();
+        const bounds = boundsAroundSite(SITE, 60);
+        const isMobile = window.matchMedia('(max-width:720px)').matches;
+        const size = isMobile ? 181 : 221;
+        setStatus(`muestreando MDT ${size}×${size}…`);
+
+        const grid = await buildTerrainGrid({
+          map,
+          bounds,
+          width: size,
+          height: size,
+          rowsPerSlice: isMobile ? 2 : 4,
+          signal: gridAbort.signal,
+          onProgress: progress => {
+            if (!active) return;
+            const pct = Math.round(progress * 100);
+            if (pct % 10 === 0) setStatus(`muestreando MDT… ${pct}%`);
+          }
+        });
+
+        if (!active) return null;
+        const ratio = grid.valid / (grid.width * grid.height);
+        if (ratio < 0.45) {
+          throw new Error(`El MDT cargado es insuficiente para el worker (${Math.round(ratio * 100)}%).`);
+        }
+
+        const client = new FlowWorkerClient();
+        workerRef.current = client;
+        const ready = await client.init({
+          grid,
+          site: SITE,
+          areaKm: 40,
+          controls: readControls()
+        });
+        workerReadyRef.current = true;
+        setStatus(`worker listo · rejilla ${ready.grid.width}×${ready.grid.height} · ${Math.round(ratio * 100)}% válida`);
+        return client;
+      })();
+
+      try {
+        return await workerPreparingRef.current;
+      } finally {
+        workerPreparingRef.current = null;
+      }
+    };
+
+    const rebuild = async ({ global = true, local = true, selectedOnly = false } = {}) => {
       const currentMode = mode();
       if (currentMode === 'legacy') return;
-      const engine = engineRef.current;
       const renderer = rendererRef.current;
-      if (!engine || !renderer || !map?.isStyleLoaded()) return;
+      if (!renderer || !map?.isStyleLoaded()) return;
 
       const token = ++buildTokenRef.current;
       const controls = readControls();
-      engine.setWind(controls);
-      setStatus('calculando nuevo motor…');
+      setStatus(workerReadyRef.current ? 'calculando en Web Worker…' : 'preparando worker…');
 
-      await new Promise(resolve => setTimeout(resolve, 16));
-      if (!active || token !== buildTokenRef.current) return;
+      const client = await prepareWorker();
+      if (!active || token !== buildTokenRef.current || !client) return;
 
-      if (global) {
-        engine.buildGlobal({ density: controls.density, totalM: 54000, step: 850 });
-      }
+      const cfg = localConfig(map);
+      const center = map.getCenter();
+      const selected = selectedRef.current
+        ? {
+            lon: selectedRef.current.lng,
+            lat: selectedRef.current.lat,
+            options: {
+              totalM: Math.max(5000, cfg.totalM || 8000),
+              step: Math.max(55, Math.min(220, cfg.step || 180))
+            }
+          }
+        : null;
 
-      if (local) {
-        const cfg = localConfig(map);
-        if (cfg.count > 0) {
-          const center = map.getCenter();
-          engine.buildLocal({
-            center: { lon: center.lng, lat: center.lat },
-            count: cfg.count,
-            spacingM: cfg.spacingM,
-            totalM: cfg.totalM,
-            step: cfg.step
-          });
-        } else {
-          engine.localStreams = [];
-        }
-      }
-
-      if (selectedRef.current) {
-        const cfg = localConfig(map);
-        engine.buildSelected(selectedRef.current.lng, selectedRef.current.lat, {
-          totalM: Math.max(5000, cfg.totalM || 8000),
-          step: Math.max(55, Math.min(220, cfg.step || 180))
-        });
-      }
-
-      if (!active || token !== buildTokenRef.current) return;
-      renderer.setStreams({
-        global: engine.globalStreams,
-        local: engine.localStreams,
-        selected: engine.selectedStream
+      const result = await client.build({
+        controls,
+        global: selectedOnly ? false : global,
+        local: selectedOnly ? false : local,
+        globalOptions: { density: controls.density, totalM: 54000, step: 850 },
+        localOptions: cfg.count > 0 ? {
+          center: { lon: center.lng, lat: center.lat },
+          count: cfg.count,
+          spacingM: cfg.spacingM,
+          totalM: cfg.totalM,
+          step: cfg.step
+        } : { count: 0 },
+        selected,
+        clearSelected: !selected
       });
-      compareSite();
-      setStatus(`GPU listo · ${engine.globalStreams.length} regionales · ${engine.localStreams.length} locales`);
+
+      if (!active || token !== buildTokenRef.current) return;
+      if (result.globalStreams) streamsRef.current.global = result.globalStreams;
+      if (result.localStreams) streamsRef.current.local = result.localStreams;
+      if (result.selectedStream !== undefined) streamsRef.current.selected = result.selectedStream;
+
+      renderer.setStreams({
+        global: streamsRef.current.global,
+        local: streamsRef.current.local,
+        selected: streamsRef.current.selected
+      });
+      compareSite(result.siteSample);
+      setStatus(
+        `Worker listo · ${streamsRef.current.global.length} regionales · ${streamsRef.current.local.length} locales`
+      );
     };
 
     const scheduleRebuild = (options, delay = 220) => {
@@ -164,25 +247,6 @@ export default function ParallelEngineBridge() {
         map = await waitForMap();
         if (!active) return;
 
-        const terrainSampler = (lon, lat) => {
-          try {
-            const value = map.queryTerrainElevation([lon, lat], { exaggerated: false });
-            return Number.isFinite(value) ? value : null;
-          } catch {
-            return null;
-          }
-        };
-
-        const initial = readControls();
-        engineRef.current = new WindParticleEngine({
-          terrainSampler,
-          site: SITE,
-          areaKm: 40,
-          stability: initial.stability,
-          speedKmh: initial.speedKmh,
-          exaggeration: initial.exaggeration
-        });
-        engineRef.current.setWind(initial);
         rendererRef.current = new DeckParticleRenderer({ map, widthMinPixels: 1.35, trailLength: 2.8 });
         updateRendererMode();
 
@@ -204,15 +268,17 @@ export default function ParallelEngineBridge() {
         addDomListener('stability', 'change', () => scheduleRebuild({ global: true, local: true }, 80));
         addDomListener('exag', 'change', () => scheduleRebuild({ global: true, local: true }, 120));
 
-        const onMoveEnd = () => scheduleRebuild({ global: false, local: true }, 180);
+        const onMoveEnd = () => {
+          if (mode() !== 'legacy') scheduleRebuild({ global: false, local: true }, 180);
+        };
         const onIdle = () => {
-          if (mode() !== 'legacy' && engineRef.current?.globalStreams.length === 0) {
+          if (mode() !== 'legacy' && streamsRef.current.global.length === 0) {
             scheduleRebuild({ global: true, local: true }, 100);
           }
         };
         const onClick = event => {
           selectedRef.current = event.lngLat;
-          if (mode() !== 'legacy') scheduleRebuild({ global: false, local: false }, 30);
+          if (mode() !== 'legacy') scheduleRebuild({ selectedOnly: true }, 30);
         };
 
         map.on('moveend', onMoveEnd);
@@ -230,12 +296,14 @@ export default function ParallelEngineBridge() {
 
     return () => {
       active = false;
+      gridAbort?.abort();
       clearTimeout(rebuildTimerRef.current);
       cancelAnimationFrame(rafRef.current);
       listeners.forEach(dispose => dispose());
+      workerRef.current?.destroy();
+      workerRef.current = null;
       rendererRef.current?.destroy();
       rendererRef.current = null;
-      engineRef.current = null;
     };
   }, []);
 
