@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import mobilePerformanceUrl from '../mobile-performance.js?url';
+import atmosphereUrl from '../sky-atmosphere.js?url';
 import legacyAppUrl from '../app.js?url';
 import detailPanelUrl from '../detail-panel.js?url';
 
@@ -43,6 +44,7 @@ export default function LegacyEngineLoader() {
     (async () => {
       try {
         scripts.push(await loadScript(mobilePerformanceUrl));
+        scripts.push(await loadScript(atmosphereUrl));
         scripts.push(await loadScript(legacyAppUrl));
         scripts.push(await loadScript(detailPanelUrl));
       } catch (err) {
