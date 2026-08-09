@@ -9,7 +9,10 @@ export default defineConfig({
     target: 'es2022',
     sourcemap: true,
     rollupOptions: {
-      input: resolve(process.cwd(), 'react.html')
+      input: {
+        react: resolve(process.cwd(), 'react.html'),
+        server: resolve(process.cwd(), 'server.html')
+      }
     }
   }
 });
