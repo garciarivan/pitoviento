@@ -19,7 +19,7 @@ El estado seguirá siendo `vec4(lon, lat, zOffset, age)`. React sólo comunicar�
 ## Movimiento y ciclo de vida
 
 - La edad avanzará con el tiempo real: `age += dt`.
-- La advección usará `motionDt = dt * MOTION_SCALE`, con `MOTION_SCALE = 12.0`. La constante se declarará en JavaScript, se interpolará en la fuente GLSL y se exportará junto a una función pura `visualAdvectionMeters(speedMs, dt)`. Así, la prueba y el shader comparten el mismo valor. Si el vector local se duplica, el desplazamiento visual también.
+- La advección usará `motionDt = dt * MOTION_SCALE`, con `MOTION_SCALE = 12.0`. La constante se declarará en JavaScript, se interpolará en la fuente GLSL mediante `MOTION_SCALE.toFixed(1)` para producir siempre un literal `float` válido como `12.0`, y se exportará junto a una función pura `visualAdvectionMeters(speedMs, dt)`. Así, la prueba y el shader comparten el mismo valor. Si el vector local se duplica, el desplazamiento visual también.
 - `dt` continuará limitado a 0,08 s para evitar saltos tras pausas o pestañas en segundo plano.
 - La vida máxima seguirá siendo 12 s.
 - La siembra inicial repartirá la edad de forma determinista en todo el intervalo `[0, 12)`. Un respawn posterior empezará cerca de edad cero para recorrer una entrada gradual completa.
@@ -41,7 +41,7 @@ El vertex shader de dibujo seguirá generando seis vértices por instancia. La d
 - `widthCss = mix(1.8, 3.2, speed01)`.
 - Ambos valores se convertirán a framebuffer mediante `devicePixelRatio`, limitado como en el renderer actual.
 
-Antes de dividir por `clip.w`, ambas proyecciones deberán cumplir `abs(clip.w) >= 1e-5`. Después, `length(directionPx)` deberá ser al menos `0.25 * devicePixelRatio`. Si falla cualquiera de las dos condiciones, los seis vértices formarán un quad degenerado fuera del clip y la opacidad será cero. No se normalizará un vector por debajo de ese epsilon ni se inventará una dirección alternativa.
+Antes de dividir por `clip.w`, ambas proyecciones deberán cumplir `clip.w > 1e-5`; una cabeza o cola en el plano de cámara o detrás de él se descartará. Después, `length(directionPx)` deberá ser al menos `0.25 * devicePixelRatio`. Si falla cualquiera de las dos condiciones, los seis vértices formarán un quad degenerado fuera del clip y la opacidad será cero. No se normalizará un vector por debajo de ese epsilon ni se inventará una dirección alternativa.
 
 El fragment shader recibirá progreso longitudinal, coordenada lateral y envolvente temporal. La opacidad combinará:
 
