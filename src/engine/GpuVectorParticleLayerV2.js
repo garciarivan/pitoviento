@@ -1,3 +1,9 @@
+export const MOTION_SCALE = 12;
+
+export function visualAdvectionMeters(speedMs, dt) {
+  return speedMs * dt * MOTION_SCALE;
+}
+
 const UPDATE_VS = `#version 300 es
 precision highp float;
 layout(location=0) in vec4 a_state;
@@ -32,13 +38,14 @@ void main(){
     lon = mix(u_spawn_bounds.x, u_spawn_bounds.z, r1);
     lat = mix(u_spawn_bounds.y, u_spawn_bounds.w, r2);
     zOffset = 40.0 + rand(id * 31.731 + u_time * 0.00013) * 110.0;
-    age = rand(id * 9.17) * 2.0;
+    age = rand(id * 9.17) * 0.2;
   } else {
+    float motionDt = u_dt * ${MOTION_SCALE.toFixed(1)};
     float metersPerDegLat = 111320.0;
     float metersPerDegLon = max(20000.0, 111320.0 * cos(radians(lat)));
-    lon += field.x * u_dt / metersPerDegLon;
-    lat += field.y * u_dt / metersPerDegLat;
-    zOffset += field.z * u_dt;
+    lon += field.x * motionDt / metersPerDegLon;
+    lat += field.y * motionDt / metersPerDegLat;
+    zOffset += field.z * motionDt;
   }
 
   v_state = vec4(lon, lat, zOffset, age);
@@ -62,6 +69,8 @@ uniform float u_pixel_ratio;
 uniform float u_terrain_exaggeration;
 out vec4 v_color;
 out float v_progress;
+out float v_side;
+out float v_life;
 
 vec2 mercatorXY(vec2 lngLat){
   float x = (lngLat.x + 180.0) / 360.0;
@@ -83,7 +92,8 @@ void main(){
   );
   vec4 field = texture(u_field, clamp(uv, 0.0, 1.0));
   float speed = length(field.xy);
-  float trailSeconds = mix(9.0, 19.0, clamp(speed / 13.0, 0.0, 1.0));
+  float speed01 = smoothstep(1.4, 15.3, speed);
+  float trailSeconds = mix(9.0, 19.0, speed01);
   float metersPerDegLat = 111320.0;
   float metersPerDegLon = max(20000.0, 111320.0 * cos(radians(a_state.y)));
   vec2 tailLngLat = a_state.xy - vec2(
@@ -111,16 +121,36 @@ void main(){
     mercatorZ(tailAltitude, tailLngLat.y),
     1.0
   );
+
+  if (headClip.w <= 0.00001 || tailClip.w <= 0.00001) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    v_color = vec4(0.0);
+    v_progress = 0.0;
+    v_side = 0.0;
+    v_life = 0.0;
+    return;
+  }
+
   vec2 headNdc = headClip.xy / max(0.00001, headClip.w);
   vec2 tailNdc = tailClip.xy / max(0.00001, tailClip.w);
   vec2 directionPx = (headNdc - tailNdc) * 0.5 * u_viewport;
-  vec2 direction = length(directionPx) > 0.001 ? normalize(directionPx) : vec2(0.0, 1.0);
+  float projectedLengthPx = length(directionPx);
+  if (projectedLengthPx < 0.25 * u_pixel_ratio) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    v_color = vec4(0.0);
+    v_progress = 0.0;
+    v_side = 0.0;
+    v_life = 0.0;
+    return;
+  }
+
+  vec2 direction = directionPx / projectedLengthPx;
   vec2 perpendicular = vec2(-direction.y, direction.x);
-  float streakLengthPx = clamp(length(directionPx), 8.0 * u_pixel_ratio, 28.0 * u_pixel_ratio);
+  float streakLengthPx = mix(18.0, 60.0, speed01) * u_pixel_ratio;
   tailNdc = headNdc - direction * streakLengthPx * 2.0 / u_viewport;
   tailClip.xy = tailNdc * tailClip.w;
-  float widthCss = mix(1.5, 3.5, clamp(speed / 13.0, 0.0, 1.0));
-  float halfWidthPx = min(4.0, 0.5 * widthCss * u_pixel_ratio);
+  float widthCss = mix(1.8, 3.2, speed01);
+  float halfWidthPx = 0.5 * widthCss * u_pixel_ratio;
 
   int corner = gl_VertexID % 6;
   float along = (corner == 1 || corner == 2 || corner == 4) ? 1.0 : 0.0;
@@ -130,6 +160,10 @@ void main(){
   clip.xy += offsetNdc * clip.w;
   gl_Position = clip;
   v_progress = along;
+  v_side = side;
+  float fadeIn = smoothstep(0.0, 0.8, a_state.w);
+  float fadeOut = 1.0 - smoothstep(10.5, 12.0, a_state.w);
+  v_life = fadeIn * fadeOut;
 
   if (field.z > 0.55) v_color = vec4(0.16, 0.94, 0.48, 1.0);
   else if (field.z < -0.55) v_color = vec4(1.0, 0.27, 0.36, 1.0);
@@ -140,9 +174,14 @@ const DRAW_FS = `#version 300 es
 precision highp float;
 in vec4 v_color;
 in float v_progress;
+in float v_side;
+in float v_life;
 out vec4 fragColor;
 void main(){
-  float alpha = mix(0.20, 0.96, smoothstep(0.0, 1.0, v_progress));
+  float tail = smoothstep(0.0, 0.24, v_progress);
+  float lateral = 1.0 - smoothstep(0.72, 1.0, abs(v_side));
+  float head = mix(0.72, 1.0, smoothstep(0.35, 1.0, v_progress));
+  float alpha = 0.96 * tail * lateral * head * v_life;
   fragColor = vec4(v_color.rgb * alpha, alpha);
 }`;
 
@@ -176,6 +215,10 @@ function createProgram(gl, vsSource, fsSource, feedbackVaryings = null){
   return p;
 }
 
+function uniformLocations(gl, program, names) {
+  return Object.fromEntries(names.map(name => [name, gl.getUniformLocation(program, name)]));
+}
+
 function seedParticles(count, bounds){
   const data = new Float32Array(count * 4);
   for (let i = 0; i < count; i += 1) {
@@ -184,7 +227,7 @@ function seedParticles(count, bounds){
     data[i * 4] = bounds.west + (bounds.east - bounds.west) * x;
     data[i * 4 + 1] = bounds.south + (bounds.north - bounds.south) * y;
     data[i * 4 + 2] = 40 + (i % 71) * 1.4;
-    data[i * 4 + 3] = (i % 113) * 0.07;
+    data[i * 4 + 3] = (i % 997) / 997 * 12;
   }
   return data;
 }
@@ -200,6 +243,11 @@ function centralBounds(bounds, fraction = 0.5){
     east: centerLon + halfLon,
     north: centerLat + halfLat
   };
+}
+
+function fieldGeometryKey(field) {
+  const { bounds } = field;
+  return [field.width, field.height, bounds.west, bounds.south, bounds.east, bounds.north].join('|');
 }
 
 function unpackRenderArgs(first, second){
@@ -271,6 +319,12 @@ export class GpuVectorParticleLayerV2 {
     this.gl = gl;
     this.updateProgram = createProgram(gl, UPDATE_VS, UPDATE_FS, ['v_state']);
     this.drawProgram = createProgram(gl, DRAW_VS, DRAW_FS);
+    this.updateUniforms = uniformLocations(gl, this.updateProgram, [
+      'u_field', 'u_bounds', 'u_spawn_bounds', 'u_dt', 'u_time'
+    ]);
+    this.drawUniforms = uniformLocations(gl, this.drawProgram, [
+      'u_matrix', 'u_field', 'u_bounds', 'u_viewport', 'u_pixel_ratio', 'u_terrain_exaggeration'
+    ]);
     this.buffers = [gl.createBuffer(), gl.createBuffer()];
     this.vaos = [gl.createVertexArray(), gl.createVertexArray()];
     this.drawVao = gl.createVertexArray();
@@ -295,6 +349,9 @@ export class GpuVectorParticleLayerV2 {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, field.width, field.height, 0, gl.RGBA, gl.FLOAT, field.data);
     gl.bindTexture(gl.TEXTURE_2D, null);
 
+    const nextGeometryKey = fieldGeometryKey(field);
+    if (this.fieldGeometryKey === nextGeometryKey) return;
+    this.fieldGeometryKey = nextGeometryKey;
     this.spawnBounds = centralBounds(field.bounds);
     const seeded = seedParticles(this.particleCount, this.spawnBounds);
     for (let i = 0; i < 2; i += 1) {
@@ -326,12 +383,13 @@ export class GpuVectorParticleLayerV2 {
     gl.bindTexture(gl.TEXTURE_2D, this.fieldTexture);
 
     gl.useProgram(this.updateProgram);
-    gl.uniform1i(gl.getUniformLocation(this.updateProgram, 'u_field'), 0);
-    gl.uniform4f(gl.getUniformLocation(this.updateProgram, 'u_bounds'), b.west, b.south, b.east, b.north);
+    const updateUniforms = this.updateUniforms;
+    gl.uniform1i(updateUniforms.u_field, 0);
+    gl.uniform4f(updateUniforms.u_bounds, b.west, b.south, b.east, b.north);
     const spawn = this.spawnBounds || centralBounds(b);
-    gl.uniform4f(gl.getUniformLocation(this.updateProgram, 'u_spawn_bounds'), spawn.west, spawn.south, spawn.east, spawn.north);
-    gl.uniform1f(gl.getUniformLocation(this.updateProgram, 'u_dt'), dt);
-    gl.uniform1f(gl.getUniformLocation(this.updateProgram, 'u_time'), now);
+    gl.uniform4f(updateUniforms.u_spawn_bounds, spawn.west, spawn.south, spawn.east, spawn.north);
+    gl.uniform1f(updateUniforms.u_dt, dt);
+    gl.uniform1f(updateUniforms.u_time, now);
     gl.bindVertexArray(this.vaos[src]);
     gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, this.feedback);
     gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, this.buffers[dst]);
@@ -344,12 +402,13 @@ export class GpuVectorParticleLayerV2 {
     gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
 
     gl.useProgram(this.drawProgram);
-    gl.uniformMatrix4fv(gl.getUniformLocation(this.drawProgram, 'u_matrix'), false, matrix);
-    gl.uniform1i(gl.getUniformLocation(this.drawProgram, 'u_field'), 0);
-    gl.uniform4f(gl.getUniformLocation(this.drawProgram, 'u_bounds'), b.west, b.south, b.east, b.north);
-    gl.uniform2f(gl.getUniformLocation(this.drawProgram, 'u_viewport'), gl.drawingBufferWidth, gl.drawingBufferHeight);
-    gl.uniform1f(gl.getUniformLocation(this.drawProgram, 'u_pixel_ratio'), Math.min(3, window.devicePixelRatio || 1));
-    gl.uniform1f(gl.getUniformLocation(this.drawProgram, 'u_terrain_exaggeration'), this.terrainExaggeration);
+    const drawUniforms = this.drawUniforms;
+    gl.uniformMatrix4fv(drawUniforms.u_matrix, false, matrix);
+    gl.uniform1i(drawUniforms.u_field, 0);
+    gl.uniform4f(drawUniforms.u_bounds, b.west, b.south, b.east, b.north);
+    gl.uniform2f(drawUniforms.u_viewport, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    gl.uniform1f(drawUniforms.u_pixel_ratio, Math.min(3, window.devicePixelRatio || 1));
+    gl.uniform1f(drawUniforms.u_terrain_exaggeration, this.terrainExaggeration);
 
     const wasBlendEnabled = gl.isEnabled(gl.BLEND);
     const blendSrcRgb = gl.getParameter(gl.BLEND_SRC_RGB);
@@ -403,6 +462,9 @@ export class GpuVectorParticleLayerV2 {
     if (this.fieldTexture) gl.deleteTexture(this.fieldTexture);
     if (this.updateProgram) gl.deleteProgram(this.updateProgram);
     if (this.drawProgram) gl.deleteProgram(this.drawProgram);
+    this.updateUniforms = null;
+    this.drawUniforms = null;
+    this.fieldGeometryKey = null;
     this.ready = false;
   }
 

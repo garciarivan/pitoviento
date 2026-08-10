@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test src/engine/GpuVectorParticleLayerV2.test.js"
   },
   "dependencies": {
     "@deck.gl/core": "9.3.7",
