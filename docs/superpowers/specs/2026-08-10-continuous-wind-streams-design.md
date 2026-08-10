@@ -19,7 +19,7 @@ El estado seguirá siendo `vec4(lon, lat, zOffset, age)`. React sólo comunicar�
 ## Movimiento y ciclo de vida
 
 - La edad avanzará con el tiempo real: `age += dt`.
-- La advección usará `motionDt = dt * 12.0`. El factor 12 es constante para todas las velocidades, de modo que conserva las proporciones del campo: si el vector local se duplica, el desplazamiento visual también.
+- La advección usará `motionDt = dt * MOTION_SCALE`, con `MOTION_SCALE = 12.0`. La constante se declarará en JavaScript, se interpolará en la fuente GLSL y se exportará junto a una función pura `visualAdvectionMeters(speedMs, dt)`. Así, la prueba y el shader comparten el mismo valor. Si el vector local se duplica, el desplazamiento visual también.
 - `dt` continuará limitado a 0,08 s para evitar saltos tras pausas o pestañas en segundo plano.
 - La vida máxima seguirá siendo 12 s.
 - La siembra inicial repartirá la edad de forma determinista en todo el intervalo `[0, 12)`. Un respawn posterior empezará cerca de edad cero para recorrer una entrada gradual completa.
@@ -40,6 +40,8 @@ El vertex shader de dibujo seguirá generando seis vértices por instancia. La d
 - `lengthCss = mix(18.0, 60.0, speed01)`.
 - `widthCss = mix(1.8, 3.2, speed01)`.
 - Ambos valores se convertirán a framebuffer mediante `devicePixelRatio`, limitado como en el renderer actual.
+
+Antes de dividir por `clip.w`, ambas proyecciones deberán cumplir `abs(clip.w) >= 1e-5`. Después, `length(directionPx)` deberá ser al menos `0.25 * devicePixelRatio`. Si falla cualquiera de las dos condiciones, los seis vértices formarán un quad degenerado fuera del clip y la opacidad será cero. No se normalizará un vector por debajo de ese epsilon ni se inventará una dirección alternativa.
 
 El fragment shader recibirá progreso longitudinal, coordenada lateral y envolvente temporal. La opacidad combinará:
 
@@ -69,10 +71,10 @@ El renderer seguirá guardando y restaurando blend, factores de mezcla, depth te
 
 En la cámara Pitolero aprobada y después de cargar campo y terreno:
 
-1. Cada instancia visible mide al menos 18 px CSS de largo; no se perciben puntos aislados.
+1. La geometría generada antes de clipping y oclusión mide al menos 18 px CSS de largo. Se excluyen del mínimo las instancias recortadas por viewport, near plane o terreno; no se perciben puntos aislados dentro de la escena visible.
 2. El flujo presenta cola suave, cuerpo legible y entrada/salida gradual, sin destello global periódico.
 3. Al cambiar velocidad con los mismos límites y dimensiones, las partículas conservan sus posiciones y no se vuelven a sembrar.
-4. Para el mismo vector normalizado y el mismo intervalo de tiempo, el desplazamiento a 20 km/h es aproximadamente cuatro veces el de 5 km/h y el de 55 km/h aproximadamente once veces el de 5 km/h, con tolerancia del 15 % por interpolación y variación local.
+4. Una prueba con `node:test` llamará a `visualAdvectionMeters` con la misma celda conceptual, dirección, estabilidad, estado inicial y `dt = 1/60`. Usará magnitudes `5/3.6`, `20/3.6` y `55/3.6` m/s y comprobará con tolerancia de punto flotante `1e-6` que las distancias guardan proporciones 1:4:11. Esta prueba no leerá buffers GPU ni añadirá instrumentación a la interfaz.
 5. La longitud crece de aproximadamente 18 px en el extremo bajo a 60 px en el alto; la anchura permanece entre 1,8 y 3,2 px CSS.
 6. Azul, verde y rojo conservan su significado actual.
 7. Las estelas siguen el terreno exagerado, no atraviesan laderas y quedan ocultas detrás de crestas.
@@ -82,6 +84,7 @@ En la cámara Pitolero aprobada y después de cargar campo y terreno:
 ## Verificación
 
 - Ejecutar `npm run build` y `git diff --check`.
+- Ejecutar la prueba determinista de `visualAdvectionMeters` mediante `node --test`.
 - Probar 5, 20 y 55 km/h durante intervalos iguales con la misma cámara.
 - Cambiar 5 → 55 → 20 km/h y comprobar que la textura cambia sin reinicio global de posiciones.
 - Observar al menos un ciclo completo de 12 s para verificar nacimiento y muerte gradual.
