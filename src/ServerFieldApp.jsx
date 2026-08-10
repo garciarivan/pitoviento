@@ -4,8 +4,8 @@ import { GpuVectorParticleLayerV2 } from './engine/GpuVectorParticleLayerV2.js';
 import { ServerFieldClient } from './engine/ServerFieldClient.js';
 
 const SITE = { lon: -5.979353098143796, lat: 40.13618392931326 };
-const TARGET_VIEW = { center: [-5.9645, 40.1245], zoom: 14.3, pitch: 72, bearing: 28 };
-const DEFAULT_EXAGGERATION = 2;
+const TARGET_VIEW = { center: [-5.987, 40.113], zoom: 14.2, pitch: 72, bearing: 28 };
+const DEFAULT_EXAGGERATION = 2.5;
 const DEM_URL = 'https://xyz-mdt.idee.es/1.0.0/raster-dem/{z}/{x}/{y}.png';
 const ORTHO_URL = 'https://tms-pnoa-ma.idee.es/1.0.0/pnoa-ma/{z}/{x}/{y}.jpeg';
 const BASE_URL = 'https://tms-ign-base.idee.es/1.0.0/IGNBaseTodo/{z}/{x}/{y}.jpeg';
@@ -28,9 +28,31 @@ function mapStyle() {
     },
     layers: [
       { id: 'base', type: 'raster', source: 'ignbase', paint: { 'raster-opacity': 1 } },
-      { id: 'ortho', type: 'raster', source: 'pnoa', paint: { 'raster-opacity': 0.82, 'raster-saturation': -0.08, 'raster-contrast': 0.14 } },
-      { id: 'hillshade', type: 'hillshade', source: HILLSHADE_SOURCE_ID, paint: { 'hillshade-exaggeration': 0.65, 'hillshade-shadow-color': '#071017', 'hillshade-highlight-color': '#fff4d8', 'hillshade-accent-color': '#3b4a54' } }
-    ]
+      {
+        id: 'ortho',
+        type: 'raster',
+        source: 'pnoa',
+        paint: {
+          'raster-opacity': 0.94,
+          'raster-brightness-min': 0.03,
+          'raster-brightness-max': 0.72,
+          'raster-contrast': 0.28,
+          'raster-saturation': 0.05
+        }
+      },
+      {
+        id: 'hillshade',
+        type: 'hillshade',
+        source: HILLSHADE_SOURCE_ID,
+        paint: {
+          'hillshade-exaggeration': 0.8,
+          'hillshade-shadow-color': 'rgba(4, 12, 18, 0.82)',
+          'hillshade-highlight-color': 'rgba(210, 205, 180, 0.18)',
+          'hillshade-accent-color': 'rgba(42, 55, 63, 0.65)'
+        }
+      }
+    ],
+    terrain: { source: TERRAIN_SOURCE_ID, exaggeration: DEFAULT_EXAGGERATION }
   };
 }
 
@@ -39,11 +61,11 @@ function applyAtmosphere(map) {
   try {
     map.setSky({
       'sky-color': '#72b6ee',
-      'sky-horizon-blend': 0.24,
-      'horizon-color': '#dceeff',
-      'horizon-fog-blend': 0.2,
-      'fog-color': '#eff7ff',
-      'fog-ground-blend': 0.1
+      'sky-horizon-blend': 0.12,
+      'horizon-color': '#b9d8ed',
+      'horizon-fog-blend': 0.06,
+      'fog-color': '#dbeaf2',
+      'fog-ground-blend': 0.01
     });
   } catch (error) {
     console.warn('No se pudo activar la atmósfera:', error);
@@ -124,6 +146,7 @@ export default function ServerFieldApp() {
     let terrainAttempted = false;
     let gpuAttempted = false;
     let fallbackTimer;
+    let terrainVerifyTimer;
     let map;
 
     try {
@@ -151,10 +174,14 @@ export default function ServerFieldApp() {
 
     const verifyTerrain = () => {
       if (!mounted || typeof map.queryTerrainElevation !== 'function') return;
-      const elevation = map.queryTerrainElevation([SITE.lon, SITE.lat], { exaggerated: false });
+      const elevation = map.queryTerrainElevation([SITE.lon, SITE.lat]);
       if (Number.isFinite(elevation) && elevation > 100) {
+        if (terrainVerifyTimer) {
+          window.clearInterval(terrainVerifyTimer);
+          terrainVerifyTimer = undefined;
+        }
         setTerrainError('');
-        setTerrainStatus(`Relieve 3D activo · MDT ${Math.round(elevation)} m.`);
+        setTerrainStatus(`Relieve 3D activo · MDT ${Math.round(elevation / exaggerationRef.current)} m.`);
       }
     };
 
@@ -169,6 +196,7 @@ export default function ServerFieldApp() {
           terrainAttempted = true;
           setTerrainError('');
           setTerrainStatus(`Relieve 3D activo · exageración ${exaggerationRef.current.toFixed(2)}×.`);
+          terrainVerifyTimer = window.setInterval(verifyTerrain, 1000);
         } catch (error) {
           if (/style is not done loading/i.test(String(error))) return;
           terrainAttempted = true;
@@ -236,6 +264,7 @@ export default function ServerFieldApp() {
     return () => {
       mounted = false;
       if (fallbackTimer) window.clearInterval(fallbackTimer);
+      if (terrainVerifyTimer) window.clearInterval(terrainVerifyTimer);
       requestAbortRef.current?.abort();
       particleLayerRef.current?.destroy();
       particleLayerRef.current = null;
@@ -359,7 +388,7 @@ export default function ServerFieldApp() {
           <input aria-label="Densidad del flujo" type="range" min="7" max="27" step="2" value={density} onChange={event => setDensity(Number(event.target.value))} />
           <div className="notice" style={{ marginTop: 6 }}>Densidad visual alta. <strong>{localDensity.toLocaleString('es-ES')} trazas GPU</strong> activas sin recrear el campo.</div>
           <div className="row" style={{ marginTop: 10 }}><span className="label">Exageración del relieve</span><span className="value">{exaggeration.toFixed(2)}×</span></div>
-          <input aria-label="Exageración del relieve" type="range" min="1" max="2.2" step="0.05" value={exaggeration} onChange={event => setExaggeration(Number(event.target.value))} />
+          <input aria-label="Exageración del relieve" type="range" min="1" max="3" step="0.05" value={exaggeration} onChange={event => setExaggeration(Number(event.target.value))} />
         </div>
 
         <div className="section">
