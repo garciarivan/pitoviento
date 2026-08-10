@@ -1,59 +1,101 @@
-# Diseño: relieve y viento muy marcados
+# Diseño: escena orográfica y trazos de viento de referencia
 
-## Contexto
+## Contexto y objetivo
 
-La versión desplegada ya recibe el campo aerológico, activa el terreno y ejecuta el renderer GPU. Sin embargo, el preset actual prioriza discreción: usa 8.000 partículas de 1,8 px y una exageración de terreno de 1,45. Sobre la ortofoto clara, el viento apenas se distingue y la deformación del relieve parece plana.
+La versión server-field ya recibe `/api/wind-field`, activa el DEM y ejecuta WebGL2, pero su cámara regional y sus puntos pequeños no producen la lectura visual solicitada. La referencia aportada muestra una escena cercana y baja, una montaña con silueta inequívoca, trazos direccionales de viento, un panel de control completo a la izquierda y un indicador de viento arriba a la derecha.
 
-## Objetivo
+El objetivo es reproducir esa composición sin volver al cálculo aerológico heredado del navegador. FastAPI, el campo binario, su caché y el mismo origen `/api` se conservan.
 
-Crear un preset visual deliberadamente intenso en el que el relieve y el movimiento del viento sean evidentes a primera vista, aceptando una representación menos realista a cambio de legibilidad.
+## Reutilización de interfaz
 
-## Terreno y cámara
+La versión server-field reutilizará el lenguaje visual ya presente en `src/App.jsx` y `style.css`, adaptándolo a estado React controlado. No cargará `app.js`, `LegacyEngineLoader` ni el motor v3.1.
 
-- Aumentar la exageración del terreno de `1.45` a `3.2`.
-- Elevar la exageración del hillshade de `0.42` a aproximadamente `0.75`.
-- Oscurecer sombras y reforzar acentos del hillshade. Se acepta que parte de la rotulación raster pierda contraste; no se añadirá una capa de etiquetas independiente en esta iteración.
-- Reducir la opacidad de la ortofoto de `0.74` a aproximadamente `0.62`, permitiendo que el sombreado del relieve domine.
-- Usar una cámara inicial determinista centrada en el sitio, con `zoom 10.8`, `pitch 74` y `bearing 28`.
+El panel izquierdo incluirá, en este orden:
 
-El terreno conservará la fuente DEM real del IGN; sólo cambia su exageración visual.
+1. Cabecera, versión server-field y descripción.
+2. Dirección con slider, etiqueta cardinal y ocho botones de brújula.
+3. Velocidad y estabilidad.
+4. Densidad visual y exageración del relieve.
+5. Seis métricas: elevación, `w`, velocidad local, dirección del flujo, área y canalización.
+6. Toggles de trazos, hillshade y ortofoto; acciones de restablecer vista y recalcular.
+7. Leyenda de colores, estado operativo y aviso de uso diagnóstico.
 
-La exageración `3.2` se definirá en una constante compartida por `map.setTerrain()` y el renderer. El shader de dibujo recibirá `u_terrain_exaggeration` y calculará la altitud visual como `field.a * exaggeration + clearance + zOffset`. La advección y el campo conservarán unidades físicas; sólo la proyección vertical seguirá al suelo exagerado. Las partículas no deberán atravesar laderas y sí podrán quedar ocultas detrás de crestas por el depth buffer.
+El indicador superior derecho mostrará dirección cardinal, velocidad y una flecha rotada hacia donde sopla el viento. Panel, chip y controles MapLibre conservarán el comportamiento responsive existente: panel desplazable en escritorio y cajón lateral en móvil.
 
-## Partículas
+## Estado y controles
 
-- Dibujar 14.000 partículas en escritorio y 7.000 en móvil.
-- Usar un diámetro objetivo de `3.2 CSS px`, convertido a framebuffer con `devicePixelRatio` y limitado al rango soportado por `ALIASED_POINT_SIZE_RANGE`, con máximo operativo de 8 px físicos.
-- Mantener la posición y altitud basadas en el campo y la elevación reales.
-- Sustituir el círculo plano por un sprite procedural: núcleo claro hasta radio normalizado 0,16; cuerpo saturado hasta 0,30; halo con caída suave hasta 0,50 y alfa máxima aproximada 0,32.
-- Saturar los colores existentes: azul para flujo casi horizontal, verde para ascenso y rojo para descenso.
-- Mantener oclusión 3D. El fragment shader emitirá `vec4(rgb * alpha, alpha)` y el draw usará `ONE, ONE_MINUS_SRC_ALPHA`. Antes de alterar blend/depth se guardará el estado relevante y se restaurará al terminar para no contaminar capas posteriores de MapLibre.
+Los controles `direction`, `speed` y `stability` seguirán disparando la petición agrupada al servidor. `recalculate` invalidará sólo la petición vigente. Los demás controles serán locales:
 
-El halo no deberá convertir el campo en una capa opaca: deben seguir distinguiéndose partículas individuales y ortofoto entre ellas.
+- `density`: rango visual 7–27, convertido a un número activo de trazos entre 3.000 y 18.000 en escritorio y entre 1.500 y 8.000 en móvil.
+- `exaggeration`: rango 1–2,2 y valor inicial 1,35; actualiza MapLibre y el uniform vertical del renderer sin solicitar otro campo.
+- `traces`, `hillshade`, `ortho`: visibilidad local inmediata.
+- `reset view`: restaura la cámara de referencia.
 
-## Rendimiento y adaptación
+El renderer sembrará una vez el máximo de partículas y modificará `activeParticleCount`; el slider de densidad no recreará buffers.
 
-- Conservar el cálculo y la advección en WebGL2.
-- Reducir a la mitad la densidad en pantallas de hasta 720 px.
-- No añadir buffers de historial ni estelas largas en esta iteración.
-- Mantener una invocación del callback `render` de MapLibre por frame y los dos draw calls GPU existentes: transform feedback para advección y dibujo de partículas. Se reutilizarán los buffers actuales.
+## Cámara y terreno
 
-## Estados y errores
+La vista de referencia será determinista:
 
-No cambia el flujo de API ni los estados separados de mapa, terreno y GPU. Un error del shader nuevo seguirá apareciendo como error GPU y no bloqueará la petición del campo.
+- centro aproximado `[-5.9645, 40.1245]`, al sureste del Pitolero;
+- zoom `14.3`;
+- pitch `72`;
+- bearing `28`;
+- exageración inicial `1.35`.
+
+Durante la verificación se permitirá ajustar una sola vez el centro dentro de 1,5 km para alinear la montaña con la referencia; el valor final quedará fijado en una constante y en la prueba visual.
+
+Hillshade y ortofoto conservarán las fuentes IGN actuales. El relieve se considerará cargado sólo si `queryTerrainElevation(SITE)` devuelve un valor finito superior a 100 m. La captura de aceptación deberá mostrar cielo, una cresta recortada contra el horizonte y valles/laderas ocupando al menos el tercio central de la imagen; la escala visible deberá estar entre 200 y 500 m.
+
+## Renderer de trazos GPU
+
+La advección seguirá usando transform feedback y el campo Float32 del servidor. El dibujo de puntos se sustituirá por quads instanciados:
+
+- un draw call actualiza los estados mediante transform feedback;
+- un draw call `drawArraysInstanced` dibuja seis vértices por trazo;
+- cada instancia construye en el vertex shader un segmento orientado por `u/v`, con longitud proporcional a la velocidad y limitada visualmente;
+- el quad se expande en espacio de pantalla para obtener grosor estable en píxeles CSS;
+- longitud objetivo: 8–28 CSS px; grosor: 1,5–3,5 CSS px según velocidad y densidad;
+- ambos valores se convierten con `devicePixelRatio` y se limitan a un máximo físico razonable.
+
+Los colores serán azul para `|w| <= 0.55`, verde para ascenso y rojo para descenso. El extremo delantero tendrá más opacidad que la cola para hacer evidente la dirección.
+
+## Sistema vertical y oclusión
+
+Una constante/uniform compartido llevará la exageración tanto a `map.setTerrain()` como al shader. La altitud visual de la cabeza será:
+
+`terrainElevation * exaggeration + 35 m + max(0, zOffset)`.
+
+La cola se calculará retrocediendo en `u/v/w`; nunca bajará del suelo exagerado más 20 m. Así ningún estado dibujable atraviesa laderas y los trazos pueden quedar correctamente ocultos detrás de crestas.
+
+El custom layer habilitará explícitamente depth testing y deshabilitará la escritura de profundidad durante los trazos. Guardará y restaurará: estado `BLEND`, los cuatro factores RGB/alpha, estado `DEPTH_TEST`, `DEPTH_FUNC` y `DEPTH_WRITEMASK`. El fragment shader emitirá alfa premultiplicada y usará `ONE, ONE_MINUS_SRC_ALPHA`.
+
+## Métricas
+
+Al recibir el campo se muestreará la celda más cercana al Pitolero. De sus canales se derivarán:
+
+- elevación DEM;
+- `w` y clasificación ascenso/neutro/descenso;
+- velocidad horizontal local en km/h;
+- rumbo del flujo mediante `atan2(u, v)`;
+- texto de canalización a partir de la diferencia respecto al rumbo sinóptico.
+
+Las métricas mostrarán `—` hasta disponer de un campo válido. Los errores de API, mapa, terreno y GPU seguirán separados y el panel mostrará todos los fallos concurrentes.
 
 ## Verificación
 
-- Compilación de producción sin errores.
-- Carga limpia sin errores ni warnings originados por la aplicación; fallos externos transitorios de teselas se informarán por separado.
-- Captura de escritorio a 1280×720 y captura móvil a 390×844, ambas con centro del sitio, zoom 10.8, pitch 74 y bearing 28.
-- En las capturas, una muestra de 50×50 px sobre zona clara y otra sobre zona oscura deberá contener partículas distinguibles sin convertirse en un relleno opaco continuo.
-- Dos capturas de escritorio separadas 1,2 segundos deberán mostrar posiciones diferentes manteniendo la misma cámara.
-- Comprobación de que el panel sigue informando campo recibido, partículas renderizándose y relieve activo.
-- Medición durante 10 segundos de cámara estática y 10 segundos de paneo: objetivo de al menos 45 FPS de mediana y p95 de intervalo de frame menor o igual a 33 ms en escritorio de prueba. En viewport móvil, objetivo de al menos 30 FPS de mediana y p95 menor o igual a 50 ms.
+- Build de producción y carga limpia sin errores o warnings originados por la aplicación.
+- `/api`, `/api/health` y `/api/wind-field` mantienen su contrato actual.
+- Captura de escritorio a 1827×1017 que reproduzca la composición de la referencia: panel completo, chip superior, cielo/horizonte, cresta central y trazos visibles en cielo y laderas.
+- Captura móvil a 390×844 que verifique cajón, chip y controles accesibles.
+- Dos capturas con cámara fija separadas 1,2 segundos muestran movimiento de trazos.
+- Toggles, brújula, sliders, reset y recálculo producen un único cambio esperado cada uno.
+- Perfil de rendimiento documentado con Chrome, user agent, DPR, CPU y renderer WebGL del equipo de prueba. Objetivo escritorio: mediana >=45 FPS y p95 de intervalo <=33 ms durante 10 s estáticos y 10 s de paneo.
+- La prueba móvil será explícitamente emulada en el mismo equipo; objetivo orientativo: mediana >=30 FPS y p95 <=50 ms. No se presentará como medición de hardware móvil real.
 
 ## Fuera de alcance
 
-- Estelas persistentes.
-- Heatmap continuo del viento.
-- Cambios al modelo aerológico o al backend.
+- Recuperar el cálculo v3.1 en navegador.
+- Heatmap continuo o estelas persistentes entre muchos frames.
+- Cambios al modelo aerológico del backend.
+- Replicar el panel de detalle puntual que no aparece abierto en la referencia.
